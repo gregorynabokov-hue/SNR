@@ -1,0 +1,217 @@
+'use strict';
+/* СНР OS v1 — Vanilla JS. Разделы: 1 хранилище · 2 аудио · 3 пульс (ввод/rPPG) · 4 сканер · 5 сессии · 6 экраны · 7 CSV */
+
+/* ===== 1. Хранилище и утилиты ===== */
+const KEY='snr_os_v1', LEN=180, PROBE=30;
+const S=Object.assign({base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false},JSON.parse(localStorage.getItem(KEY)||'{}'));
+const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
+const $=s=>document.querySelector(s), app=$('#app'), html=h=>{app.innerHTML=h};
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)), sleep=ms=>new Promise(r=>setTimeout(r,ms)), rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+const click=sel=>new Promise(r=>{$(sel).onclick=r});
+const PR={shield:{n:'Сенсорный щит',orb:1},booster:{n:'Когнитивный бустер'},peak:{n:'Симулятор пиковых нагрузок'},reset:{n:'Экстренный сброс',orb:1}};
+const AX=['Акустика','Зрение','Вакуум','Давление'], AXP=['shield','shield','booster','peak'];
+
+/* ===== 2. Аудио (Web Audio API) ===== */
+const A={ctx:null,nodes:[],timers:[],alive:false,
+ init(){if(!this.ctx){this.ctx=new(window.AudioContext||window.webkitAudioContext)();this.master=this.ctx.createGain();this.master.connect(this.ctx.destination)}this.ctx.resume();this.alive=true},
+ gain(v){const g=this.ctx.createGain();g.gain.value=v;g.connect(this.master);this.nodes.push(g);return g},
+ filt(t,f,q=1){const x=this.ctx.createBiquadFilter();x.type=t;x.frequency.value=f;x.Q.value=q;this.nodes.push(x);return x},
+ bufs:{},
+ noise(type){const c=this.ctx;let b=this.bufs[type];
+  if(!b){b=this.bufs[type]=c.createBuffer(1,c.sampleRate*2,c.sampleRate);const d=b.getChannelData(0);let l=0; // кэш: не пересчитываем 100k сэмплов
+   for(let i=0;i<d.length;i++){const w=Math.random()*2-1;if(type==='brown'){l=(l+.02*w)/1.02;d[i]=l*3.5}else d[i]=w}}
+  const s=c.createBufferSource();s.buffer=b;s.loop=true;s.start();this.nodes.push(s);return s},
+ crowd(){const g=this.gain(0),n=this.noise('brown'),f=this.filt('lowpass',450);n.connect(f);f.connect(g);return g}, // гул толпы
+ tone(f,d=.2,v=.1,type='sine'){const c=this.ctx,o=c.createOscillator(),g=c.createGain(),t=c.currentTime;o.type=type;o.frequency.value=f;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+Math.min(.05,d/3));g.gain.linearRampToValueAtTime(0,t+d);o.connect(g);g.connect(this.master);o.start(t);o.stop(t+d+.05)},
+ click(v){this.tone(3500+Math.random()*2500,.03,v,'square')}, // резкий высокочастотный импульс
+ tick(hi){this.tone(hi?900:700,.04,.15)},
+ every(fn,ms){this.timers.push(setInterval(fn,ms))},
+ stop(){this.alive=false;this.timers.forEach(clearInterval);this.timers=[];this.nodes.forEach(n=>{try{n.stop?.()}catch(e){}try{n.disconnect()}catch(e){}});this.nodes=[]}};
+
+/* ===== 3. Пульс: ручной ввод + экспериментальный rPPG (зелёный канал лица) ===== */
+const R={buf:[],
+ async start(){if(this.v)return;this.st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:160,height:120}});
+  const v=this.v=document.createElement('video');v.srcObject=this.st;v.muted=true;v.playsInline=true;await v.play();
+  this.c=document.createElement('canvas');this.c.width=40;this.c.height=30;this.x=this.c.getContext('2d',{willReadFrequently:true});this.buf=[];
+  const samp=()=>{if(this.v!==v)return;this.x.drawImage(v,0,0,40,30);const d=this.x.getImageData(10,5,20,12).data;let g=0;for(let i=1;i<d.length;i+=4)g+=d[i];
+   const n=performance.now();this.buf.push([n,g/(d.length/4)]);while(this.buf[0][0]<n-20000)this.buf.shift();
+   v.requestVideoFrameCallback?v.requestVideoFrameCallback(samp):this.iv=setTimeout(samp,33)}; // по кадрам камеры, без дублей
+  samp()},
+ bpm(){const b=this.buf;if(b.length<150||b.at(-1)[0]-b[0][0]<10000)return null;
+  const sm=(a,w)=>a.map((_,i)=>{let s=0,n=0;for(let j=Math.max(0,i-w);j<=Math.min(a.length-1,i+w);j++){s+=a[j];n++}return s/n});
+  const v=b.map(p=>p[1]),t=b.map(p=>p[0]),f=sm(v,2),bs=sm(v,15),y=f.map((x,i)=>x-bs[i]),th=Math.sqrt(y.reduce((s,x)=>s+x*x,0)/y.length)*.3,pk=[];
+  for(let i=1;i<y.length-1;i++)if(y[i]>th&&y[i]>y[i-1]&&y[i]>=y[i+1]&&(!pk.length||t[i]-pk.at(-1)>350))pk.push(t[i]);
+  if(pk.length<6)return null;const iv=pk.slice(1).map((p,i)=>p-pk[i]).sort((a,b)=>a-b),r=Math.round(60000/iv[iv.length>>1]);return r>45&&r<150?r:null},
+ stop(){clearInterval(this.iv);this.st?.getTracks().forEach(t=>t.stop());this.v=null},
+ async measure(sec,tick){await this.start();const t0=Date.now();while(Date.now()-t0<sec*1000){tick(Math.ceil(sec-(Date.now()-t0)/1000));await sleep(250)}const r=this.bpm();this.stop();return r}};
+
+function pulseForm(title,withDisc,cb){
+ html(`<h2>${title}</h2><p class="m">Пульс, уд/мин: измерьте камерой (лицо в кадре, не двигаться) или введите значение, замеренное смартфоном.</p>
+ <input id="hr" type="number" inputmode="numeric" placeholder="например, 72">
+ ${withDisc?`<label>Дискомфорт: <b id="dv">0</b>/10</label><input id="ds" type="range" min="0" max="10" value="0">`:''}
+ <button id="cam" class="ghost">Измерить камерой (15 с)</button><p id="st" class="m"></p><button id="ok">Дальше</button>`);
+ if(withDisc)$('#ds').oninput=e=>$('#dv').textContent=e.target.value;
+ $('#cam').onclick=async()=>{try{const b=await R.measure(15,s=>$('#st').textContent='Смотрите в камеру… '+s);
+  $('#st').textContent=b?'Пульс по камере: '+b:'Сигнал слабый. Добавьте света или введите пульс вручную.';if(b)$('#hr').value=b}catch(e){R.stop();$('#st').textContent='Нет доступа к камере. Введите пульс вручную.'}};
+ $('#ok').onclick=()=>{const hr=+$('#hr').value;if(!(hr>=40&&hr<=200))return $('#st').textContent='Введите пульс от 40 до 200.';cb(hr,withDisc?+$('#ds').value:0)}}
+
+/* ===== 4. Сенсорный лабиринт ===== */
+const PB=[{n:'Акустический спектр',d:'Гул толпы и нарастающий свип до резких высоких импульсов. Нужны наушники.'},
+ {n:'Визуально-ритмический спектр',d:'Мерцание контраста по периферии (до 1,7 Гц). Смотрите в центр экрана.'},
+ {n:'Сенсорный вакуум',d:'Полная тишина. Просто оставайтесь с собой.'},
+ {n:'Когнитивно-социальный прессинг',d:'Часы тикают всё быстрее. Время давит.'}];
+const SETUP=[
+ len=>{const g=A.crowd(),t=A.ctx.currentTime;g.gain.setValueAtTime(.05,t);g.gain.linearRampToValueAtTime(.7,t+len);
+  const o=A.ctx.createOscillator(),og=A.gain(.04);o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(7000,t+len);o.connect(og);o.start();A.nodes.push(o);
+  let k=0;A.every(()=>A.click(.04+(++k/len)*.15),900)},
+ ()=>{},()=>{},
+ len=>{const t0=performance.now();let hi=0;(function tk(){if(!A.alive)return;A.tick(hi^=1);setTimeout(tk,1000*60/(60+120*Math.min(1,(performance.now()-t0)/1000/len)))})()}];
+
+async function runProbe(i,len){ // i=-1 — базовый покой
+ A.init();html(`<div class="vis v${i}"></div><h2>${i<0?'Базовый покой':PB[i].n}</h2><div id="cd" class="cd"></div><div class="bar"><i id="pg"></i></div><button id="stop" class="ghost">Прервать</button>`);
+ if(i>=0)SETUP[i](len);let stop=false;$('#stop').onclick=()=>stop=true;const t0=Date.now();
+ const pg=$('#pg');pg.style.transition=`width ${len}s linear`;requestAnimationFrame(()=>pg.style.width='100%');
+ while(!stop&&Date.now()-t0<len*1000){if(i===3)$('#cd').textContent=Math.ceil(len-(Date.now()-t0)/1000);await sleep(250)}
+ A.stop();return !stop}
+
+async function scan(){
+ html(`<h2>Перед началом</h2><div class="card"><p>Программа не является медицинским изделием и не ставит диагноз. Это исследовательский инструмент.</p>
+ <p>В пробе 2 мерцает контраст. Не проходите её при светочувствительной эпилепсии. В любой момент можно нажать «Прервать».</p><p>Сядьте удобно, наденьте наушники, сделайте громкость комфортной.</p></div>
+ <button id="go">Понятно, начать</button><button id="no" class="ghost">Назад</button>`);
+ $('#no').onclick=()=>home();await click('#go');
+ html(`<h2>Базовый покой</h2><p class="m">30 секунд тишины. Дышите ровно, затем измерьте пульс.</p><button id="go">Начать</button>`);await click('#go');
+ if(!await runProbe(-1,PROBE))return home();
+ const base=await new Promise(r=>pulseForm('Пульс в покое',false,r));const hr=[],disc=[];
+ for(let i=0;i<4;i++){
+  html(`<h2>Проба ${i+1} из 4: ${PB[i].n}</h2><p>${PB[i].d}</p><button id="go">Запустить (30 с)</button>`);await click('#go');
+  if(!await runProbe(i,PROBE))return home();
+  await new Promise(r=>pulseForm(PB[i].n+': пульс и дискомфорт',true,(h,d)=>{hr.push(h);disc.push(d);r()}))}
+ // уязвимость, %: рост пульса относительно покоя + субъективный дискомфорт
+ S.base=base;S.hr=hr;S.disc=disc;S.vuln=hr.map((h,i)=>clamp(Math.round(Math.max(0,(h-base)/base*100)*3.5+disc[i]*4.5),0,100));
+ const o=S.vuln.map((v,i)=>[v,i]).sort((a,b)=>b[0]-a[0]),p1=AXP[o[0][1]],p2=AXP[o.find(x=>AXP[x[1]]!==p1)[1]];
+ S.plan={};for(let d=1;d<=14;d++)S.plan[d]=d%7===0?'reset':d%2?p1:p2;S.done={};
+ S.scans.push({t:new Date().toISOString(),base,hr,disc,vuln:S.vuln});S.log.push(...hr.map((h,i)=>({type:'scan',t:new Date().toISOString(),proto:AX[i],pre:base,post:h,disc:disc[i],lvl:S.vuln[i]})));
+ save();home('Профиль построен. 14-дневный курс готов.')}
+
+/* ===== 5. Тренировочные протоколы ===== */
+async function breathe(c,onCycle){const orb=$('#orb'),lb=$('#lbl'),ph=[['Вдох',4,1,60],['Пауза',2,1,0],['Выдох',6,.45,20]];
+ while(c.alive){for(const[n,s,sc,v]of ph){if(!c.alive)return;lb.textContent=n;orb.style.transition=`transform ${s}s ease-in-out`;orb.style.transform=`scale(${sc})`;
+  for(let i=0;i<s&&c.alive;i++){if(v)navigator.vibrate?.(v);if(n==='Вдох')A.tone(300+i*60,.9,.03);if(n==='Выдох')A.tone(420-i*45,.9,.03);await sleep(1000)}}onCycle?.()}}
+async function reaction(c){const f=$('#task');f.innerHTML='<div class="field" id="fld"></div>';const fl=$('#fld'),rts=[];let miss=0;
+ while(c.alive){await sleep(500+Math.random()*1200);if(!c.alive)break;const b=document.createElement('button');b.className='tgt';b.style.left=Math.random()*80+'%';b.style.top=Math.random()*80+'%';fl.append(b);
+  const t0=performance.now(),ok=await new Promise(r=>{b.onclick=()=>r(true);setTimeout(()=>r(false),1500/(1+c.lvl))});b.remove();ok?rts.push(performance.now()-t0):miss++}
+ c.res={n:rts.length,miss,rt:rts.length?Math.round(rts.reduce((a,b)=>a+b)/rts.length):''}}
+async function math(c){const box=$('#task');let ok=0,bad=0;
+ while(c.alive){const a=rnd(10,40+Math.round(c.lvl*50)),b=rnd(3,9+Math.round(c.lvl*10)),x=rnd(2,9),ans=a+b*x,o=new Set([ans]);
+  while(o.size<4)o.add(ans+rnd(1,9)*(Math.random()<.5?-1:1));const lim=Math.max(4,10-c.lvl*5)*1000;
+  box.innerHTML=`<p class="q">${a} + ${b} × ${x}</p><div class="opts">${[...o].sort(()=>Math.random()-.5).map(v=>`<button data-v="${v}">${v}</button>`).join('')}</div><div class="bar"><i id="tm" style="width:100%"></i></div>`;
+  const r=await new Promise(res=>{const t0=Date.now(),done=v=>{clearInterval(iv);res(v)};box.onclick=e=>e.target.dataset.v&&done(+e.target.dataset.v===ans);
+   const iv=setInterval(()=>{const f=(Date.now()-t0)/lim;$('#tm')&&($('#tm').style.width=(100-f*100)+'%');if(f>=1||!c.alive)done(false)},100)});
+  r?ok++:bad++;c.lvl=clamp(c.lvl+(r?.03:-.03),.1,1)}
+ c.res={n:ok+bad,miss:bad,ok}}
+const SET={
+ shield(c){const g=A.crowd();c.apply=()=>g.gain.setTargetAtTime(c.lvl*.7,A.ctx.currentTime,.4);c.apply();
+  A.every(()=>{if(Math.random()<c.lvl+.2)A.click(c.lvl*.3)},1300);breathe(c,()=>{c.lvl=Math.min(1,c.lvl+.03);c.apply()})},
+ booster(c){const n=A.noise('white'),f=A.filt('bandpass',1600,.6),g=A.gain(.08);n.connect(f);f.connect(g);
+  const ch=[[220,261.6,329.6],[174.6,220,261.6],[196,261.6,329.6],[196,246.9,293.7]];let k=0;const cd=()=>ch[k++%4].forEach(fr=>A.tone(fr,6,.035));cd();A.every(cd,6000);
+  A.every(()=>A.tone(2000+Math.random()*1500,.1,.03),2500);reaction(c)},
+ peak(c){const g=A.crowd();g.gain.value=.25+c.lvl*.4;A.every(()=>A.click(.06),2000);let h=0;A.every(()=>A.tick(h^=1),1000);math(c)},
+ async reset(c){const orb=$('#orb'),lb=$('#lbl'),st=Math.max(66,c.pre),x=A.ctx,mk=(f,pan)=>{const o=x.createOscillator(),p=x.createStereoPanner(),g=A.gain(.05);o.frequency.value=f;p.pan.value=pan;o.connect(p);p.connect(g);o.start();A.nodes.push(o);return o};
+  mk(200,-1);const rr=mk(212,1),n=A.noise('brown');n.connect(A.gain(.05));const t0=Date.now(); // бинауральный бит 12→6 Гц (наушники)
+  while(c.alive){const e=Math.min(1,(Date.now()-t0)/(LEN*1000)),bpm=st+(60-st)*e,p=60/bpm;rr.frequency.setTargetAtTime(206+6*(1-e),x.currentTime,.1);
+   lb.textContent=Math.round(bpm)+' уд/мин';A.tone(55,.25,.25);navigator.vibrate?.(30);
+   orb.style.transition=`transform ${p*.35}s ease-out`;orb.style.transform='scale(1)';await sleep(p*350);
+   orb.style.transition=`transform ${p*.6}s ease-in`;orb.style.transform='scale(.6)';await sleep(p*650)}}};
+
+function session(p){
+ pulseForm(PR[p].n+': пульс до',false,pre=>{A.init();
+  const c={p,pre,alive:true,lvl:S.lv[p]??.2,eases:0,auto:0,res:{}};
+  html(`<h2>${PR[p].n}</h2><div class="stage ${PR[p].orb?'':'hide'}"><div class="orb" id="orb"></div><div class="lbl" id="lbl"></div></div><div id="task"></div>
+  <div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div>`);
+  const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
+  const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);A.stop();R.stop();c.wl?.release();finish(c)};
+  $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
+  if(S.cam)R.start().then(()=>A.every(()=>{const b=R.bpm();if(b&&S.base&&b>S.base*1.15&&p!=='reset'){c.lvl*=.85;c.auto++;c.apply?.()}},5000)).catch(()=>{});
+  setTimeout(()=>{if(c.alive)SET[p](c)},50); // orb: старт с scale(.45) из CSS
+  const pg=$('#pg');pg.style.transition=`width ${LEN}s linear`;requestAnimationFrame(()=>pg.style.width='100%');
+  iv=setInterval(()=>{if(Date.now()-t0>=LEN*1000)end()},500)})}
+function finish(c){pulseForm('Как вы себя чувствуете? Пульс после',true,(post,disc)=>{
+ const good=disc<=4&&c.eases<=1;S.lv[c.p]=clamp(c.lvl+(good?.05:-.08),.1,1);
+ S.log.push({type:'session',t:new Date().toISOString(),day:curDay(),proto:c.p,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
+ const d=curDay();if(d<=14&&S.plan[d]===c.p)S.done[d]=true;save();home(`Сессия сохранена. Пульс: ${c.pre} → ${post}.`)})}
+
+/* ===== 6. Экраны, графики ===== */
+const curDay=()=>{for(let d=1;d<=14;d++)if(!S.done[d])return d;return 15};
+function radar(cv,v,v0){const x=cv.getContext('2d'),W=cv.width=320,H=cv.height=320,cx=160,cy=160,R0=110,pt=(i,k)=>[cx+Math.sin(i*Math.PI/2)*R0*k,cy-Math.cos(i*Math.PI/2)*R0*k];
+ x.clearRect(0,0,W,H);x.strokeStyle='#2a3060';x.fillStyle='#8e94c0';x.font='13px system-ui';x.textAlign='center';
+ for(const k of[.25,.5,.75,1]){x.beginPath();for(let i=0;i<4;i++){const[a,b]=pt(i,k);i?x.lineTo(a,b):x.moveTo(a,b)}x.closePath();x.stroke()}
+ for(let i=0;i<4;i++){const[a,b]=pt(i,1),[lx,ly]=pt(i,1.25);x.beginPath();x.moveTo(cx,cy);x.lineTo(a,b);x.stroke();x.fillText(`${AX[i]} ${v[i]}%`,lx,ly+4)}
+ if(v0){x.beginPath();v0.forEach((s,i)=>{const[a,b]=pt(i,s/100);i?x.lineTo(a,b):x.moveTo(a,b)});x.closePath();x.setLineDash([5,4]);x.strokeStyle='#ff9d6b';x.lineWidth=2;x.stroke();x.setLineDash([])}
+ x.beginPath();v.forEach((s,i)=>{const[a,b]=pt(i,s/100);i?x.lineTo(a,b):x.moveTo(a,b)});x.closePath();x.fillStyle='#7cc4ff44';x.fill();x.strokeStyle='#7cc4ff';x.lineWidth=2;x.stroke()}
+function dyn(cv){const x=cv.getContext('2d'),W=cv.width=340,H=cv.height=160,L=S.log.filter(l=>l.type==='session');x.clearRect(0,0,W,H);x.fillStyle='#8e94c0';x.font='13px system-ui';
+ if(L.length<2){x.textAlign='center';x.fillText('График появится после двух тренировок',W/2,H/2);return}
+ const all=L.flatMap(l=>[l.pre,l.post]),lo=Math.min(...all)-5,hi=Math.max(...all)+5,X=i=>20+i*(W-40)/(L.length-1),Y=v=>H-20-(v-lo)/(hi-lo)*(H-40);
+ [['pre','#8e94c0'],['post','#7cc4ff']].forEach(([k,col])=>{x.beginPath();x.strokeStyle=col;x.lineWidth=2;L.forEach((l,i)=>i?x.lineTo(X(i),Y(l[k])):x.moveTo(X(i),Y(l[k])));x.stroke()});
+ x.textAlign='left';x.fillText('серый — до, голубой — после (уд/мин)',8,14)}
+function home(msg){
+ const d=curDay(),has=!!S.vuln;
+ html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${msg?`<p class="toast">${msg}</p>`:''}
+ ${has?`<div class="card"><h2>Радар болевых спектров</h2><canvas id="rad"></canvas></div>
+ <div class="card"><h2>${d<=14?`День ${d} из 14: ${PR[S.plan[d]].n}`:'Курс пройден'}</h2><div class="days">${Object.entries(S.plan).map(([k,p])=>`<div class="day ${S.done[k]?'done':''} ${+k===d?'cur':''}">${k}<br>${PR[p].n.split(' ')[0]}</div>`).join('')}</div>
+ ${d<=14?`<button data-p="${S.plan[d]}">Начать сессию (3 мин)</button>`:''}
+ <div class="row"><button class="ghost" data-p="shield">Щит</button><button class="ghost" data-p="booster">Бустер</button><button class="ghost" data-p="peak">Пик</button><button class="ghost" data-p="reset">Сброс</button></div></div>
+ <div class="card"><h2>Динамика пульса</h2><canvas id="dyn"></canvas></div>`
+ :`<div class="card"><h2>Начните со сканера</h2><p>Четыре короткие пробы (около 6 минут) покажут, где сенсорная система перегружена, а где недостаточно стимулов. По результату соберётся 14-дневный курс.</p></div>`}
+ <button id="scan" class="${has?'ghost':''}">${has?'Пройти сканер заново':'Запустить сенсорный лабиринт'}</button>
+ <div class="card"><label><input type="checkbox" id="cam" ${S.cam?'checked':''}> Следить за пульсом камерой во время сессий (экспериментально)</label>
+ <div class="row"><button id="stats">Аналитика</button><button class="ghost" id="csv">CSV: сессии</button><button class="ghost" id="csv2">CSV: по дням</button><button class="ghost" id="clr">Стереть</button></div></div>
+ <p class="m">Не медицинское изделие. При дискомфорте остановитесь.</p>`);
+ if(has){radar($('#rad'),S.vuln);dyn($('#dyn'))}
+ document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>session(b.dataset.p));
+ $('#scan').onclick=scan;$('#cam').onchange=e=>{S.cam=e.target.checked;save()};$('#csv').onclick=csv;$('#csv2').onclick=csvDaily;$('#stats').onclick=stats;
+ $('#clr').onclick=()=>{if(confirm('Удалить весь прогресс на этом устройстве?')){localStorage.removeItem(KEY);location.reload()}}}
+
+/* ===== 7. Экспорт CSV ===== */
+function csv(){const H='type,time,day,protocol,hr_pre,hr_post,hr_delta,discomfort,level,eases,trials,errors,mean_rt_ms,correct\n';
+ const rows=S.log.map(l=>[l.type,l.t,l.day??'',l.proto,l.pre,l.post,l.post-l.pre,l.disc,l.lvl,l.eases??'',l.n??'',l.miss??'',l.rt??'',l.ok??''].join(',')).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+H+rows],{type:'text/csv'}));a.download='snr_os_'+new Date().toISOString().slice(0,10)+'.csv';a.click()}
+
+/* ===== 8. Аналитика ===== */
+const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN,
+ sd=a=>{if(a.length<2)return NaN;const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1))},
+ slope=a=>{const n=a.length;if(n<3)return NaN;const mx=(n-1)/2,my=mean(a);let u=0,d=0;a.forEach((y,i)=>{u+=(i-mx)*(y-my);d+=(i-mx)**2});return u/d}, // МНК-наклон на сессию
+ f1=(x,d=1)=>Number.isFinite(x)?(+x.toFixed(d)).toString().replace('.',','):'—';
+function lines(cv,ser,o={}){const dpr=devicePixelRatio||1,W=340,H=170;cv.width=W*dpr;cv.height=H*dpr;const x=cv.getContext('2d');x.scale(dpr,dpr);x.font='12px system-ui';
+ const all=ser.flatMap(s=>s.v).filter(Number.isFinite);if(all.length<2){x.fillStyle='#8e94c0';x.textAlign='center';x.fillText('Недостаточно данных',W/2,H/2);return}
+ const lo=o.lo??Math.min(...all),hi=o.hi??Math.max(...all),N=Math.max(...ser.map(s=>s.v.length)),X=i=>32+i*(W-44)/Math.max(1,N-1),Y=v=>H-22-(v-lo)/((hi-lo)||1)*(H-44);
+ x.strokeStyle='#2a3060';x.fillStyle='#8e94c0';x.textAlign='right';[lo,(lo+hi)/2,hi].forEach(g=>{x.beginPath();x.moveTo(34,Y(g));x.lineTo(W-6,Y(g));x.stroke();x.fillText(f1(g,0),30,Y(g)+4)});
+ ser.forEach((q,k)=>{x.strokeStyle=x.fillStyle=q.c;x.lineWidth=2;x.beginPath();let st=0;q.v.forEach((y,i)=>{if(Number.isFinite(y)){st?x.lineTo(X(i),Y(y)):x.moveTo(X(i),Y(y));st=1}});x.stroke();x.textAlign='left';x.fillText(q.n,36+k*72,12)})}
+const COL={shield:'#7cc4ff',booster:'#9be37f',peak:'#ff9d6b',reset:'#c9a7ff'};
+function stats(){
+ const L=S.log.filter(l=>l.type==='session'),D=L.map(l=>l.post-l.pre),dz=mean(D)/sd(D);
+ const rows=Object.keys(PR).map(p=>{const q=L.filter(l=>l.proto===p);if(!q.length)return'';const d=q.map(l=>l.post-l.pre);
+  return `<tr><td>${PR[p].n.split(' ')[0]}</td><td>${q.length}</td><td>${f1(mean(d))}±${f1(sd(d))}</td><td>${f1(mean(q.map(l=>l.disc)))}</td><td>${f1(q[0].lvl*100,0)}→${f1(q.at(-1).lvl*100,0)}</td></tr>`}).join('');
+ const m=(k,v)=>`<div><span class="m">${k}</span><b>${v}</b></div>`;
+ html(`<h2>Аналитика</h2>${L.length?'':'<p class="toast">Пока нет сессий: данные появятся после первой тренировки.</p>'}
+ <div class="card"><div class="grid">${m('Сессий',L.length)}${m('Дней курса',Object.keys(S.done).length+' из 14')}${m('Δ пульса, уд/мин',f1(mean(D)))}${m('Эффект d (парный)',f1(dz,2))}
+ ${m('Тренд дискомфорта /сессия',f1(slope(L.map(l=>l.disc)),2))}${m('Снижений нагрузки',L.reduce((a,l)=>a+(l.eases||0),0))}</div>
+ <p class="m">Δ&lt;0: пульс после тренировки ниже, чем до. ${L.length<10?'Данных мало, оценки предварительные.':''}</p></div>
+ <div class="card"><h2>По протоколам</h2><div class="sc"><table><tr><th>Режим</th><th>N</th><th>Δ пульса</th><th>Диском.</th><th>Порог, %</th></tr>${rows}</table></div></div>
+ <div class="card"><h2>Порог толерантности, %</h2><canvas id="c1"></canvas></div>
+ <div class="card"><h2>Δ пульса за сессию, уд/мин</h2><canvas id="c2"></canvas></div>
+ <div class="card"><h2>Дискомфорт, 0–10</h2><canvas id="c3"></canvas></div>
+ ${S.scans.length>1?'<div class="card"><h2>Сканер: первый (пунктир) и последний</h2><canvas id="c4"></canvas></div>':''}
+ <button id="bk">Назад</button>`);
+ const P=Object.keys(PR),ser=f=>P.map(p=>({n:PR[p].n.split(' ')[0],c:COL[p],v:L.filter(l=>l.proto===p).map(f)})).filter(q=>q.v.length);
+ lines($('#c1'),ser(l=>l.lvl*100),{lo:0,hi:100});lines($('#c2'),[{n:'Δ',c:'#7cc4ff',v:D}]);lines($('#c3'),ser(l=>l.disc),{lo:0,hi:10});
+ if(S.scans.length>1)radar($('#c4'),S.scans.at(-1).vuln,S.scans[0].vuln);
+ $('#bk').onclick=()=>home()}
+function csvDaily(){const g={};S.log.filter(l=>l.type==='session').forEach(l=>(g[l.day+'|'+l.proto]??=[]).push(l));
+ const n=x=>Number.isFinite(x)?+x.toFixed(2):'',H='day,protocol,sessions,hr_pre_mean,hr_post_mean,hr_delta_mean,discomfort_mean,level_end,mean_rt_ms\n';
+ const rows=Object.entries(g).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([k,q])=>{const[d,p]=k.split('|'),pre=mean(q.map(l=>l.pre)),post=mean(q.map(l=>l.post));
+  return [d,p,q.length,n(pre),n(post),n(post-pre),n(mean(q.map(l=>l.disc))),q.at(-1).lvl,n(mean(q.map(l=>l.rt).filter(Number.isFinite)))].join(',')}).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+H+rows],{type:'text/csv'}));a.download='snr_os_daily_'+new Date().toISOString().slice(0,10)+'.csv';a.click()}
+
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+home();
