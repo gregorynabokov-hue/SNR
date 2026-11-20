@@ -2,11 +2,12 @@
 /* СНР OS v1 — Vanilla JS. Разделы: 1 хранилище · 2 аудио · 3 пульс (ввод/rPPG) · 4 сканер · 5 сессии · 6 экраны · 7 CSV */
 
 /* ===== 1. Хранилище и утилиты ===== */
-const KEY='snr_os_v1', PROBE=30;let LEN=180;
-const S=Object.assign({base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
+const APP_VER='8.2';const KEY='snr_os_v1', PROBE=30;let LEN=180;
+const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
 const vib=n=>S.set.vib&&navigator.vibrate?.(n);
-const chrome=n=>{document.body.classList.remove('run');document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===n))};
+const chrome=n=>{document.body.classList.remove('run');document.querySelectorAll('#tabs button').forEach(b=>{const on=b.dataset.t===n;b.classList.toggle('on',on);b.setAttribute('aria-current',on?'page':'false')})};
+const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $=s=>document.querySelector(s), app=$('#app'), html=h=>{app.innerHTML=h;app.classList.remove('fade');void app.offsetWidth;app.classList.add('fade')};
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)), sleep=ms=>new Promise(r=>setTimeout(r,ms)), rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
 const click=sel=>new Promise(r=>{$(sel).onclick=r});
@@ -67,10 +68,10 @@ function pulseForm(title,withDisc,cb,pre){
  html(`<h2>${title}</h2>${pre?`<p class="m">С датчика получено: ${pre} уд/мин (медиана). Проверьте и нажмите «Дальше».</p>`:''}<p class="m">Пульс, уд/мин: измерьте камерой (лицо в кадре, не двигаться) или введите значение, замеренное смартфоном.</p>
  <input id="hr" type="number" inputmode="numeric" placeholder="например, 72" value="${pre??''}">
  ${withDisc?`<label>Дискомфорт: <b id="dv">0</b>/10</label><input id="ds" type="range" min="0" max="10" value="0">`:''}
- ${HRM.connected()?'<button id="bl" class="ghost">Взять с датчика</button>':''}<button id="cam" class="ghost">Измерить камерой (15 с)</button><p id="st" class="m"></p><button id="ok">Дальше</button>`);
+ ${HRM.connected()?'<button id="bl" class="ghost">Взять с датчика</button>':''}${S.cam?'<button id="cam" class="ghost">Измерить камерой (15 с)</button>':''}<p id="st" class="m"></p><button id="ok">Дальше</button>`);
  if(withDisc)$('#ds').oninput=e=>$('#dv').textContent=e.target.value;
  const bl=$('#bl');if(bl)bl.onclick=()=>{const v=HRM.fresh();if(v){$('#hr').value=v;$('#st').textContent='Пульс с датчика: '+v}else $('#st').textContent='Датчик не передаёт данные. Проверьте контакт.'};
- $('#cam').onclick=async()=>{try{const b=await R.measure(15,s=>$('#st').textContent='Смотрите в камеру… '+s);
+ const camBtn=$('#cam');if(camBtn)camBtn.onclick=async()=>{try{const b=await R.measure(15,s=>$('#st').textContent='Смотрите в камеру… '+s);
   $('#st').textContent=b?'Пульс по камере: '+b:'Сигнал слабый. Добавьте света или введите пульс вручную.';if(b)$('#hr').value=b}catch(e){R.stop();$('#st').textContent='Нет доступа к камере. Введите пульс вручную.'}};
  $('#ok').onclick=()=>{const hr=+$('#hr').value;if(!(hr>=40&&hr<=200))return $('#st').textContent='Введите пульс от 40 до 200.';cb(hr,withDisc?+$('#ds').value:0)}}
 
@@ -95,7 +96,7 @@ async function runProbe(i,len){ // i=-1 — базовый покой
 
 const med=a=>{if(!a.length)return null;const x=[...a].sort((p,q)=>p-q);return x[x.length>>1]};
 function sensorSample(){const arr=[];const iv=setInterval(()=>{const v=HRM.fresh();if(v)arr.push(v)},1000);return()=>{clearInterval(iv);return arr}};
-async function scan(){
+async function scan(){if(S.vuln&&!confirm('Новый скан создаст новый план на 14 дней. Текущий курс сохранится в истории. Продолжить?'))return home();
  document.body.classList.add('run');
  html(`<h2>Перед началом</h2><div class="card"><p>Программа не является медицинским изделием и не ставит диагноз. Это исследовательский инструмент.</p>
  <p>В пробе 2 мерцает контраст. Не проходите её при светочувствительной эпилепсии. В любой момент можно нажать «Прервать».</p><p>Сядьте удобно, наденьте наушники, сделайте громкость комфортной. Если есть датчик пульса, подключите его заранее: тогда пульс запишется сам.</p></div>
@@ -120,14 +121,14 @@ async function scan(){
  const recRaw=stop(),rec=await new Promise(r=>pulseForm('Пульс после отдыха',false,r,med(recRaw)));
  S.base=base;S.hr=hr;S.disc=disc;S.vuln=hr.map((h,i)=>clamp(Math.round(Math.max(0,(h-base)/base*100)*3.5+disc[i]*4.5),0,100));
  const o=S.vuln.map((v,i)=>[v,i]).sort((a,b)=>b[0]-a[0]),p1=AXP[o[0][1]],p2=AXP[o.find(x=>AXP[x[1]]!==p1)[1]];
- S.plan={};for(let d=1;d<=14;d++)S.plan[d]=d%7===0?'reset':d%2?p1:p2;S.done={};
- S.scans.push({t:new Date().toISOString(),base,rec,hr,disc,vuln:S.vuln,raw:raw.map(a=>a.map(Math.round))});
+ if(S.plan)(S.courses=S.courses||[]).push({endedAt:new Date().toISOString(),plan:S.plan,done:S.done,vuln:S.vuln});S.plan={};for(let d=1;d<=14;d++)S.plan[d]=d%7===0?'reset':d%2?p1:p2;S.done={};
+ S.scans.push({v:APP_VER,t:new Date().toISOString(),base,rec,hr,disc,vuln:S.vuln,raw:raw.map(a=>a.map(Math.round))});
  S.log=S.log.filter(l=>l.type!=='scan');S.log.push(...hr.map((h,i)=>({type:'scan',t:new Date().toISOString(),proto:AX[i],pre:base,post:h,disc:disc[i],lvl:S.vuln[i]})));
  save();home('Профиль построен. 14-дневный курс готов.')}
 
 /* ===== 5. Тренировочные протоколы ===== */
 async function breathe(c,onCycle){const orb=$('#orb'),lb=$('#lbl'),ph=[['Вдох',4,1,60],['Пауза',2,1,0],['Выдох',6,.45,20]];
- while(c.alive){for(const[n,s,sc,v]of ph){if(!c.alive)return;lb.textContent=n;orb.style.transition=`transform ${s}s ease-in-out`;orb.style.transform=`scale(${sc})`;
+ while(c.alive){for(const[n,s,sc,v]of ph){if(!c.alive)return;lb.textContent=n;orb.style.transition=REDUCE?'none':`transform ${s}s ease-in-out`;orb.style.transform=`scale(${sc})`;
   for(let i=0;i<s&&c.alive;i++){if(v)vib(v);if(n==='Вдох')A.tone(300+i*60,.9,.03);if(n==='Выдох')A.tone(420-i*45,.9,.03);await sleep(1000)}}onCycle?.()}}
 async function reaction(c){const f=$('#task');f.innerHTML='<div class="field" id="fld"></div>';const fl=$('#fld'),rts=[];let miss=0;
  while(c.alive){await sleep(500+Math.random()*1200);if(!c.alive)break;const b=document.createElement('button');b.className='tgt';b.style.left=Math.random()*80+'%';b.style.top=Math.random()*80+'%';fl.append(b);
@@ -178,22 +179,27 @@ async function fetchScenario(p){
   cache[key]=sc;const ks=Object.keys(cache);ks.slice(0,Math.max(0,ks.length-20)).forEach(k=>delete cache[k]);
   localStorage.setItem('snr_scn',JSON.stringify(cache));return sc}
  catch(e){return null}finally{clearTimeout(to)}}
+function localIntro(p){const v=S.vuln||[0,0,0,0],top=AX[v.indexOf(Math.max(...v))].toLowerCase();
+ const last=S.log.filter(l=>l.type==='session').at(-1);
+ return {title:PR[p].n,intro:[`Сегодня: ${PR[p].n.toLowerCase()}. По вашему скану сильнее всего нагружен спектр «${top}».`,
+  last&&last.post<last.pre?'В прошлый раз пульс снизился. Повторите то, что помогло.':'Не спешите. Дыхание важнее результата.',
+  'Сядьте удобно и начинайте, когда будете готовы.']}}
 function brief(p){chrome('home');const b=BRIEF[p];
- html(`<h2>${PR[p].n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
- <div class="card" id="ai"><span class="m">Вступление к сессии</span><p id="aiT">${S.set.api?'Готовим вступление…':'Вступление: стандартное'}</p></div>
+ html(`${ICON[p]}<h2>${PR[p].n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
+ <div class="card" id="ai"><span class="m">Вступление к сессии</span><p id="aiT">Готовим вступление…</p></div>
  <div class="card"><h2>Как проходить</h2><ol class="steps">${b.steps.map(x=>`<li>${x}</li>`).join('')}</ol></div>
  <div class="card"><p class="m">Перед стартом измерим пульс: датчиком, камерой или вручную. После сессии спросим про самочувствие.</p></div>
  <button id="go">Начать</button><button id="back" class="ghost">Назад</button>`);
  $('#back').onclick=()=>home();$('#go').onclick=()=>sessionRun(p);
- fetchScenario(p).then(sc=>{const box=$('#ai');if(!box)return;box.innerHTML='';
+ fetchScenario(p).then(sc0=>{const sc=sc0||localIntro(p);const box=$('#ai');if(!box)return;box.innerHTML='';
   const lab=document.createElement('span');lab.className='m';lab.textContent='Вступление к сессии';box.append(lab);
-  if(!sc){const t=document.createElement('p');t.textContent=S.set.api?'Вступление: стандартное':'Вступление: стандартное';box.append(t);return}
+  
   const h=document.createElement('h3');h.textContent=sc.title;box.append(h);
   sc.intro.forEach(x=>{const q=document.createElement('p');q.textContent=x;box.append(q)})})}
 function sessionRun(p){document.body.classList.add('run');pulseForm(PR[p].n+': пульс до',false,pre=>{A.init();LEN=S.set.len;
   const c={p,pre,alive:true,lvl:S.lv[p]??.2,eases:0,auto:0,res:{}};
-  html(`<h2>${PR[p].n}</h2><div class="stage ${PR[p].orb?'':'hide'}"><div class="orb" id="orb"></div><div class="lbl" id="lbl"></div></div><div id="task"></div>
-  <p class="m" id="hrl" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div>`);
+  html(`<h2>${PR[p].n}</h2><div class="stage ${PR[p].orb?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
+  <p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div>`);
   const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
   const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();R.stop();c.wl?.release();finish(c)};
   $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
@@ -212,7 +218,7 @@ function sessionRun(p){document.body.classList.add('run');pulseForm(PR[p].n+': �
   iv=setInterval(()=>{if(Date.now()-t0>=LEN*1000)end()},500)})}
 function finish(c){pulseForm('Как вы себя чувствуете? Пульс после',true,(post,disc)=>{
  const good=disc<=4&&c.eases<=1;S.lv[c.p]=clamp(c.lvl+(good?.05:-.08),.1,1);
- S.log.push({type:'session',t:new Date().toISOString(),day:curDay(),proto:c.p,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
+ S.log.push({type:'session',v:APP_VER,t:new Date().toISOString(),day:curDay(),proto:c.p,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
  const d=curDay();if(d<=14&&S.plan[d]===c.p)S.done[d]=true;save();summary(S.log.at(-1))})}
 
 /* ===== 6. Экраны, графики ===== */
@@ -228,12 +234,20 @@ function dyn(cv){const x=cv.getContext('2d'),W=cv.width=340,H=cv.height=160,L=S.
  const all=L.flatMap(l=>[l.pre,l.post]),lo=Math.min(...all)-5,hi=Math.max(...all)+5,X=i=>20+i*(W-40)/(L.length-1),Y=v=>H-20-(v-lo)/(hi-lo)*(H-40);
  [['pre','#8e94c0'],['post','#7cc4ff']].forEach(([k,col])=>{x.beginPath();x.strokeStyle=col;x.lineWidth=2;L.forEach((l,i)=>i?x.lineTo(X(i),Y(l[k])):x.moveTo(X(i),Y(l[k])));x.stroke()});
  x.textAlign='left';x.fillText('серый — до, голубой — после (уд/мин)',8,14)}
+function whyDay(d){const p=S.plan[d];if(d%7===0)return 'Каждый седьмой день — сброс, чтобы дать нервной системе восстановиться.';
+ const idx=[0,1,2,3].filter(i=>AXP[i]===p).sort((a,b)=>S.vuln[b]-S.vuln[a]);
+ if(!idx.length)return `Сегодня ${SHORT[p]}: второй по выраженности спектр в вашем скане.`;
+ return `${AX[idx[0]]} ${S.vuln[idx[0]]}%: этот спектр нагружен сильнее других, поэтому сегодня ${SHORT[p]}.`}
+const ICON={shield:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4l16 6v12c0 10-7 18-16 22C15 40 8 32 8 22V10z" fill="none" stroke="#7cc4ff" stroke-width="2.4"/></svg>',
+ booster:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M4 30c5-8 9-8 14 0s9 8 14 0 8-6 12 0" fill="none" stroke="#9be37f" stroke-width="2.4" stroke-linecap="round"/></svg>',
+ peak:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18" fill="none" stroke="#ff9d6b" stroke-width="2.4"/><path d="M24 12v12l8 5" fill="none" stroke="#ff9d6b" stroke-width="2.4" stroke-linecap="round"/></svg>',
+ reset:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M30 6a18 18 0 1 0 12 26A14 14 0 0 1 30 6z" fill="none" stroke="#c9a7ff" stroke-width="2.4"/></svg>'};
 function home(msg){
  if(!S.seen)return onboard();chrome('home');
  const d=curDay(),has=!!S.vuln;
  html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${msg?`<p class="toast">${msg}</p>`:''}
  ${!has?`<div class="card hero"><span class="m">Начните здесь</span><h2>Сенсорный лабиринт</h2><p>Около 6 минут. Четыре короткие пробы покажут, какие раздражители вам трудно переносить. По итогам соберётся план на 14 дней.</p><button id="scan">Запустить сенсорный лабиринт</button></div>`:''}
- ${has&&d<=14?`<div class="card hero"><span class="m">Сегодня · день ${d} из 14</span><h2>${PR[S.plan[d]].n}</h2><p>${BRIEF[S.plan[d]].short}</p><button data-p="${S.plan[d]}">Начать сессию (${S.set.len/60} мин)</button></div>`:''}
+ ${has&&d<=14?`<div class="card hero"><span class="m">Сегодня · день ${d} из 14</span><h2>${PR[S.plan[d]].n}</h2><p>${BRIEF[S.plan[d]].short}</p><p class="m">${whyDay(d)}</p><button data-p="${S.plan[d]}">Начать сессию (${S.set.len/60} мин)</button></div>`:''}
  ${has&&d>14?`<div class="card hero"><h2>Курс пройден</h2><p>14 дней позади. Можно пройти сканер заново и сравнить радар.</p></div>`:''}
  ${has?hero():''}
  ${has?`<div class="card"><h2>План на 14 дней</h2><div class="days">${Object.entries(S.plan).map(([k,p])=>`<div class="day ${S.done[k]?'done':''} ${+k===d?'cur':''}">${k}<br>${SHORT[p]}</div>`).join('')}</div></div>
@@ -268,11 +282,16 @@ function stats(){chrome('stats');const lastHR=[...S.log].reverse().find(l=>l.typ
  const rows=Object.keys(PR).map(p=>{const q=L.filter(l=>l.proto===p);if(!q.length)return'';const d=q.map(l=>l.post-l.pre);
   return `<tr><td>${PR[p].n.split(' ')[0]}</td><td>${q.length}</td><td>${f1(mean(d))}${Number.isFinite(sd(d))?'±'+f1(sd(d)):''}</td><td>${f1(mean(q.map(l=>l.disc)))}</td><td>${f1(q[0].lvl*100,0)}→${f1(q.at(-1).lvl*100,0)}</td></tr>`}).join('');
  const m=(k,v)=>`<div><span class="m">${k}</span><b>${v}</b></div>`;
+ const nM=L.reduce((a,l)=>a+(l.hr_series?.length||0),0)+S.scans.reduce((a,x)=>a+(x.raw?.flat().length||0),0);
+ const nD=new Set(L.map(l=>l.day)).size;
+ const countsCard=`<div class="card"><h2>Собрано данных</h2><div class="grid">${m('Сессий',L.length)}${m('Дней с сессиями',nD)}${m('Замеров пульса',nM)}${m('Завершённых курсов',(S.courses||[]).length)}</div><p class="m">Замеры: пульс в сессиях и пробы сканера.</p></div>`;
+ const wt0=L.length?new Date(L[0].t).getTime():0;const wk={};L.forEach(l=>{const w=Math.floor((new Date(l.t).getTime()-wt0)/604800000)+1;(wk[w]??=[]).push(l)});
+ const weeksCard=`<div class="card"><h2>По неделям</h2>${L.length?`<div class="sc"><table><tr><th>Неделя</th><th>Сессий</th><th>Δ пульса</th><th>Диском.</th></tr>${Object.keys(wk).map(w=>{const q=wk[w];return `<tr><td>${w}</td><td>${q.length}</td><td>${f1(mean(q.map(l=>l.post-l.pre)))}</td><td>${f1(mean(q.map(l=>l.disc)))}</td></tr>`}).join('')}</table></div>`:'<p class="m">Пока нет сессий.</p>'}<p class="m">Контрольной группы нет, поэтому изменения по неделям не доказывают причину. Это описательные данные.</p></div>`;
  html(`<h2>Аналитика</h2>${L.length?'':'<p class="toast">Пока нет сессий: данные появятся после первой тренировки.</p>'}
- <div class="card"><div class="grid">${m('Сессий',L.length)}${m('Дней курса',Object.keys(S.done).length+' из 14')}${m('Δ пульса, уд/мин',f1(mean(D)))}${m('Эффект d (парный)',f1(dz,2))}
+ <div class="card"><div class="grid">${m('Сессий',L.length)}${m('Дней курса',Object.keys(S.done).length+' из 14')}${m('Δ пульса, уд/мин',f1(mean(D)))}${m('Эффект d (парный)',L.length>=10?f1(dz,2):'нужно 10+ сессий')}
  ${m('Тренд дискомфорта /сессия',f1(slope(L.map(l=>l.disc)),2))}${m('Снижений нагрузки',L.reduce((a,l)=>a+(l.eases||0),0))}</div>
  <p class="m">Δ&lt;0: пульс после тренировки ниже, чем до. ${L.length<10?'Данных мало, оценки предварительные.':''}</p></div>
- <div class="card"><h2>По протоколам</h2><div class="sc"><table><tr><th>Режим</th><th>N</th><th>Δ пульса</th><th>Диском.</th><th>Порог, %</th></tr>${rows}</table></div></div>
+ ${countsCard}${weeksCard}<div class="card"><h2>По протоколам</h2><div class="sc"><table><tr><th>Режим</th><th>N</th><th>Δ пульса</th><th>Диском.</th><th>Порог, %</th></tr>${rows}</table></div></div>
  <div class="card"><h2>Порог толерантности, %</h2><canvas id="c1"></canvas></div>
  <div class="card"><h2>Δ пульса за сессию, уд/мин</h2><canvas id="c2"></canvas></div>
  <div class="card"><h2>Дискомфорт, 0–10</h2><canvas id="c3"></canvas></div>
@@ -305,26 +324,72 @@ function summary(l){chrome('home');const d=l.post-l.pre,t=d<=-3?'Пульс за
 function settings(){chrome('set');html(`<h2>Настройки</h2><div class="card"><label>Громкость: <b id="vv">${Math.round(S.set.vol*100)}</b>%</label><input id="vol" type="range" min="10" max="100" value="${S.set.vol*100}">
  <label>Длительность сессии</label><div class="row" id="len">${[60,180,300].map(n=>`<button class="${S.set.len===n?'':'ghost'}" data-n="${n}">${n/60} мин</button>`).join('')}</div>
  <label><input type="checkbox" id="vb" ${S.set.vib?'checked':''}> Вибрация в такт дыханию (Android)</label>
- <label><input type="checkbox" id="cm" ${S.cam?'checked':''}> Запись пульса камерой каждые 1,5 с во время сессий (экспериментально)</label></div>
+ </div>
+ <details class="card"><summary>Словарик: что означают термины</summary><dl class="gl">
+ <dt>Радар болевых спектров</dt><dd>Диаграмма из четырёх направлений: звук, зрение, тишина и давление времени. Чем дальше точка от центра, тем сильнее реакция.</dd>
+ <dt>Уязвимость, %</dt><dd>Насколько сильно организм реагирует на этот тип ситуации: 0 — почти нет реакции, 100 — сильная.</dd>
+ <dt>Дискомфорт, 0–10</dt><dd>Ваша оценка: 0 — всё нормально, 10 — очень неприятно.</dd>
+ <dt>Порог толерантности, %</dt><dd>Насколько сильный раздражитель вы выдерживаете спокойно. Растёт, если сессии проходят легко.</dd>
+ <dt>Δ пульса</dt><dd>Пульс после сессии минус пульс до. Минус — пульс снизился.</dd>
+ <dt>Эффект d</dt><dd>Насколько заметно изменение пульса по сравнению с разбросом. Верить ему стоит только при 10 и более сессиях.</dd>
+ <dt>Протокол</dt><dd>Один тип тренировки: «Щит», «Бустер», «Пик» или «Сброс».</dd>
+ <dt>Дыхание 4-2-6</dt><dd>Вдох 4 секунды, пауза 2, выдох 6. Длинный выдох помогает успокоиться.</dd>
+ <dt>Габитуация</dt><dd>Привыкание: мозг перестаёт бурно реагировать на безопасный повторяющийся сигнал.</dd>
+ <dt>Бинауральный бит</dt><dd>Звук, где каждое ухо слышит немного разную частоту. Работает только в наушниках.</dd>
+</dl></details>
+ <div class="card"><h2>Установка на экран</h2><p class="m">Установленное приложение открывается полноэкранно и работает без интернета.</p>
+ <p class="m">Android: Chrome → меню ⋮ → «Установить приложение».</p>
+ <p class="m">iPhone: Safari → «Поделиться» → «На экран «Домой»».</p>
+ <button id="inst" class="ghost" hidden>Установить приложение</button></div>
+ <div class="card"><h2>Политика данных</h2><p class="m">Аккаунта нет. Все данные хранятся только на этом устройстве: сессии, сканы, курсы и настройки.</p>
+ <p class="m">Сторонним сервисам уходит только сводка по спектрам для вступления, без имени, сырых пульсовых рядов и идентификаторов. Передача включается, только если указан адрес сервера в настройках.</p>
+ <p class="m">Данные удаляются кнопкой «Удалить все данные и кэш» ниже или очисткой данных браузера.</p>
+ <button id="wipe" class="ghost">Удалить все данные и кэш</button></div>
+ <div class="card"><h2>Экспериментальные функции</h2><p class="m">Работают нестабильно, точность не проверена. Данные могут быть неверными.</p>
+ <label><input type="checkbox" id="cm" ${S.cam?'checked':''}> Измерение пульса камерой: кнопка в формах и запись во время сессий</label></div>
+ <div class="card"><h2>Данные</h2><p class="m">Резервная копия содержит сессии, сканы и курсы. Файл можно восстановить на другом устройстве.</p>
+ <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
+ <input type="file" id="bkf" accept="application/json" hidden></div>
  <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="https://snr-os-scenario.example.workers.dev"><p class="m">Пусто: показываются стандартные тексты. Ключ API хранится на сервере, не в приложении. Инструкция: proxy/README.md.</p></div>
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
  <div class="row"><button id="bc" class="${HRM.connected()?'ghost':''}">${HRM.connected()?'Отключить':'Подключить датчик'}</button></div>
  <p class="m">Нагрудные ремни и часы, передающие стандартный пульс (Polar H10, Wahoo, Garmin и др.). Нужны Chrome на Android или ПК. Safari на iPhone Bluetooth в браузере не поддерживает.</p></div>
- <button id="ob" class="ghost">Показать вводный тур</button><button id="clr" class="ghost">Стереть данные</button>`);
+ <button id="ob" class="ghost">Показать вводный тур</button>`);
  $('#vol').oninput=e=>{S.set.vol=e.target.value/100;$('#vv').textContent=e.target.value;save()};
  $('#len').onclick=e=>{const n=+e.target.dataset.n;if(n){S.set.len=n;save();settings()}};
  $('#vb').onchange=e=>{S.set.vib=+e.target.checked;save()};$('#cm').onchange=e=>{S.cam=e.target.checked;save()};
  $('#ob').onclick=()=>{S.seen=0;save();home()};
  $('#api').onchange=e=>{S.set.api=e.target.value.trim();save()};
+ $('#bk1').onclick=exportData;$('#bk2').onclick=()=>$('#bkf').click();$('#bkf').onchange=importData;
+ $('#wipe').onclick=wipeAll;
+ $('#inst').onclick=async()=>{if(!deferredInstall)return;deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null;settings()};
  $('#bc').onclick=async()=>{
   if(HRM.connected()){HRM.dev.gatt.disconnect();return settings()}
   try{$('#bst').textContent='Поиск датчика…';await HRM.connect();settings()}
   catch(e){settings();$('#bst').textContent=e.name==='NotFoundError'?'Датчик не выбран':'Не подключено: '+e.message}};
- $('#clr').onclick=()=>{if(confirm('Удалить весь прогресс на этом устройстве?')){localStorage.removeItem(KEY);location.reload()}}}
+ }
 $('#tabs').onclick=e=>{const t=e.target.closest('button')?.dataset.t;if(t)({home:()=>home(),stats,set:settings})[t]()};
 
 function csvHR(){const rows=S.log.filter(l=>l.type==='session'&&l.hr_series?.length).flatMap(l=>l.hr_series.map(([sec,b,src='cam'])=>[l.t,l.day??'',l.proto,sec,b,src].join(','))).join('\n');
  if(!rows)return alert('Пока нет записей пульса. Включите запись пульса камерой в настройках и пройдите сессию.');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+'session_time,day,protocol,sec,bpm,source\n'+rows],{type:'text/csv'}));a.download='snr_os_hr_'+new Date().toISOString().slice(0,10)+'.csv';a.click()}
+function exportData(){const blob=new Blob([JSON.stringify({app:APP_VER,exported:new Date().toISOString(),data:S},null,1)],{type:'application/json'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='snr_os_backup_'+new Date().toISOString().slice(0,10)+'.json';a.click()}
+async function importData(e){const f=e.target.files[0];if(!f)return;
+ try{const obj=JSON.parse(await f.text());const d=obj.data||obj;
+  if(!d||!Array.isArray(d.log)||!Array.isArray(d.scans))throw new Error('файл не похож на резервную копию СНР OS');
+  if(!confirm('Заменить текущие данные данными из файла? Текущие данные будут потеряны.'))return;
+  localStorage.setItem(KEY,JSON.stringify(d));location.reload()}
+ catch(err){alert('Не удалось восстановить: '+err.message)}}
+window.addEventListener('beforeunload',e=>{if(document.body.classList.contains('run')){e.preventDefault();e.returnValue=''}});
+let deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const b=$('#inst');if(b)b.hidden=false});
+window.addEventListener('appinstalled',()=>{deferredInstall=null});
+// --- 6. приватность: полное удаление данных, включая кэш приложения
+async function wipeAll(){if(!confirm('Удалить все данные, курс и кэш приложения на этом устройстве? Сначала можно сохранить резервную копию.'))return;
+ localStorage.clear();
+ if('caches' in window)for(const k of await caches.keys())await caches.delete(k);
+ if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
+ location.reload()}
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 home();
