@@ -2,6 +2,7 @@
 /* СНР OS v1 — Vanilla JS. Разделы: 1 хранилище · 2 аудио · 3 пульс (ввод/rPPG) · 4 сканер · 5 сессии · 6 экраны · 7 CSV */
 
 /* ===== 1. Хранилище и утилиты ===== */
+const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const APP_VER='8.2';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -237,26 +238,26 @@ function nextLesson(){
  return {n,proto:order.find(x=>x!==last.proto)||'shield',
   why:harder?'Пульс снизился, а нагрузка была переносимой: можно чуть сложнее.':'Продолжаем по главному спектру, протоколы чередуются.'}}
 function radar(cv,v,v0){const x=cv.getContext('2d'),W=cv.width=400,H=cv.height=340,cx=200,cy=170,R0=72,pt=(i,k)=>[cx+Math.sin(i*Math.PI/2)*R0*k,cy-Math.cos(i*Math.PI/2)*R0*k];
- x.clearRect(0,0,W,H);x.strokeStyle='#3E3B5C';x.fillStyle='#B3AECF';x.font='12px system-ui';x.textAlign='center';
+ x.clearRect(0,0,W,H);x.strokeStyle=cssv('--ln');x.fillStyle=cssv('--mu');x.font='12px system-ui';x.textAlign='center';
  for(const k of[.25,.5,.75,1]){x.beginPath();for(let i=0;i<4;i++){const[a,b]=pt(i,k);i?x.lineTo(a,b):x.moveTo(a,b)}x.closePath();x.stroke()}
  for(let i=0;i<4;i++){const[a,b]=pt(i,1),[lx,ly]=pt(i,1.18);x.beginPath();x.moveTo(cx,cy);x.lineTo(a,b);x.stroke();x.textAlign=i===1?'left':i===3?'right':'center';x.fillText(`${AX[i]} ${v[i]}%`,i===1?lx+4:i===3?lx-4:lx,ly+4)}
- if(v0){x.beginPath();v0.forEach((s,i)=>{const[a,b]=pt(i,s/100);i?x.lineTo(a,b):x.moveTo(a,b)});x.closePath();x.setLineDash([5,4]);x.strokeStyle='#F4B9A0';x.lineWidth=2;x.stroke();x.setLineDash([])}
- x.beginPath();v.forEach((s,i)=>{const[a,b]=pt(i,s/100);i?x.lineTo(a,b):x.moveTo(a,b)});x.closePath();x.fillStyle='#A9C8EC44';x.fill();x.strokeStyle='#A9C8EC';x.lineWidth=2;x.stroke()}
-function dyn(cv){const x=cv.getContext('2d'),W=cv.width=340,H=cv.height=160,L=S.log.filter(l=>l.type==='session');x.clearRect(0,0,W,H);x.fillStyle='#B3AECF';x.font='13px system-ui';
+ if(v0){x.beginPath();v0.forEach((s,i)=>{const[a,b]=pt(i,s/100);i?x.lineTo(a,b):x.moveTo(a,b)});x.closePath();x.setLineDash([5,4]);x.strokeStyle=cssv('--wr');x.lineWidth=2;x.stroke();x.setLineDash([])}
+ x.beginPath();v.forEach((s,i)=>{const[a,b]=pt(i,s/100);i?x.lineTo(a,b):x.moveTo(a,b)});x.closePath();x.fillStyle=cssv('--ac')+'44';x.fill();x.strokeStyle=cssv('--ac');x.lineWidth=2;x.stroke()}
+function dyn(cv){const x=cv.getContext('2d'),W=cv.width=340,H=cv.height=160,L=S.log.filter(l=>l.type==='session');x.clearRect(0,0,W,H);x.fillStyle=cssv('--mu');x.font='13px system-ui';
  if(L.length<2){x.textAlign='center';x.fillText('График появится после двух тренировок',W/2,H/2);return}
  const all=L.flatMap(l=>[l.pre,l.post]),lo=Math.min(...all)-5,hi=Math.max(...all)+5,X=i=>20+i*(W-40)/(L.length-1),Y=v=>H-20-(v-lo)/(hi-lo)*(H-40);
- [['pre','#B3AECF'],['post','#A9C8EC']].forEach(([k,col])=>{x.beginPath();x.strokeStyle=col;x.lineWidth=2;L.forEach((l,i)=>i?x.lineTo(X(i),Y(l[k])):x.moveTo(X(i),Y(l[k])));x.stroke()});
+ [['pre',cssv('--mu')],['post',cssv('--ac')]].forEach(([k,col])=>{x.beginPath();x.strokeStyle=col;x.lineWidth=2;L.forEach((l,i)=>i?x.lineTo(X(i),Y(l[k])):x.moveTo(X(i),Y(l[k])));x.stroke()});
  x.textAlign='left';x.fillText('серый — до, голубой — после (уд/мин)',8,14)}
-const ICON={shield:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4l16 6v12c0 10-7 18-16 22C15 40 8 32 8 22V10z" fill="none" stroke="#A9C8EC" stroke-width="2.4"/></svg>',
- booster:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M4 30c5-8 9-8 14 0s9 8 14 0 8-6 12 0" fill="none" stroke="#A8DEC0" stroke-width="2.4" stroke-linecap="round"/></svg>',
- peak:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18" fill="none" stroke="#F4B9A0" stroke-width="2.4"/><path d="M24 12v12l8 5" fill="none" stroke="#F4B9A0" stroke-width="2.4" stroke-linecap="round"/></svg>',
- reset:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M30 6a18 18 0 1 0 12 26A14 14 0 0 1 30 6z" fill="none" stroke="#C9B6EE" stroke-width="2.4"/></svg>'};
+const ICON={shield:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4l16 6v12c0 10-7 18-16 22C15 40 8 32 8 22V10z" fill="none" style="stroke:var(--ac)" stroke-width="2.4"/></svg>',
+ booster:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M4 30c5-8 9-8 14 0s9 8 14 0 8-6 12 0" fill="none" style="stroke:var(--mint)" stroke-width="2.4" stroke-linecap="round"/></svg>',
+ peak:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18" fill="none" style="stroke:var(--wr)" stroke-width="2.4"/><path d="M24 12v12l8 5" fill="none" style="stroke:var(--wr)" stroke-width="2.4" stroke-linecap="round"/></svg>',
+ reset:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M30 6a18 18 0 1 0 12 26A14 14 0 0 1 30 6z" fill="none" style="stroke:var(--lav)" stroke-width="2.4"/></svg>'};
 function home(msg){
  if(!S.seen)return onboard();chrome('home');
  const has=!!S.vuln,nx=nextLesson(),log=S.log.filter(l=>l.type==='session');
  const scanCard=`<div class="card hero"><span class="m">Начните здесь</span><h2>Сенсорный лабиринт</h2><p>Около 6 минут. Четыре короткие пробы покажут, какие раздражители вам трудно переносить. По итогам начнётся курс.</p><button id="scan">Запустить сенсорный лабиринт</button></div>`;
  const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${PR[nx.proto].n}</h2><p>${BRIEF[nx.proto].short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${S.set.len/60} мин)</button></div>`:'';
- const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map(l=>`<div class="day done">${l.lesson??''}<br>${SHORT[l.proto]}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
+ const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map((l,i,arr)=>`<div class="day done"><span class="dn">${l.lesson??(log.length-arr.length+i+1)}</span>${SHORT[l.proto]}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
  html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${msg?`<p class="toast">${msg}</p>`:''}
  ${!has?scanCard:lessonCard}
  ${has?hero():''}
@@ -283,11 +284,11 @@ const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN,
  slope=a=>{const n=a.length;if(n<3)return NaN;const mx=(n-1)/2,my=mean(a);let u=0,d=0;a.forEach((y,i)=>{u+=(i-mx)*(y-my);d+=(i-mx)**2});return u/d}, // МНК-наклон на сессию
  f1=(x,d=1)=>Number.isFinite(x)?(+x.toFixed(d)).toString().replace('.',','):'—';
 function lines(cv,ser,o={}){const dpr=devicePixelRatio||1,W=340,H=170;cv.width=W*dpr;cv.height=H*dpr;const x=cv.getContext('2d');x.scale(dpr,dpr);x.font='12px system-ui';
- const all=ser.flatMap(s=>s.v).filter(Number.isFinite);if(all.length<2){x.fillStyle='#B3AECF';x.textAlign='center';x.fillText('Недостаточно данных',W/2,H/2);return}
+ const all=ser.flatMap(s=>s.v).filter(Number.isFinite);if(all.length<2){x.fillStyle=cssv('--mu');x.textAlign='center';x.fillText('Недостаточно данных',W/2,H/2);return}
  const lo=o.lo??Math.min(...all),hi=o.hi??Math.max(...all),N=Math.max(...ser.map(s=>s.v.length)),X=i=>32+i*(W-44)/Math.max(1,N-1),Y=v=>H-22-(v-lo)/((hi-lo)||1)*(H-44);
- x.strokeStyle='#3E3B5C';x.fillStyle='#B3AECF';x.textAlign='right';[lo,(lo+hi)/2,hi].forEach(g=>{x.beginPath();x.moveTo(34,Y(g));x.lineTo(W-6,Y(g));x.stroke();x.fillText(f1(g,0),30,Y(g)+4)});
+ x.strokeStyle=cssv('--ln');x.fillStyle=cssv('--mu');x.textAlign='right';[lo,(lo+hi)/2,hi].forEach(g=>{x.beginPath();x.moveTo(34,Y(g));x.lineTo(W-6,Y(g));x.stroke();x.fillText(f1(g,0),30,Y(g)+4)});
  ser.forEach((q,k)=>{x.strokeStyle=x.fillStyle=q.c;x.lineWidth=2;x.beginPath();let st=0;q.v.forEach((y,i)=>{if(Number.isFinite(y)){st?x.lineTo(X(i),Y(y)):x.moveTo(X(i),Y(y));st=1}});x.stroke();q.v.forEach((y,i)=>{if(Number.isFinite(y)){x.beginPath();x.arc(X(i),Y(y),4,0,7);x.fill()}});x.textAlign='left';x.fillText(q.n,36+ser.slice(0,k).reduce((a,t)=>a+x.measureText(t.n).width+16,0),12)})}
-const COL={shield:'#A9C8EC',booster:'#A8DEC0',peak:'#F4B9A0',reset:'#C9B6EE'};
+const COL={shield:cssv('--ac'),booster:cssv('--mint'),peak:cssv('--wr'),reset:cssv('--lav')};
 function stats(){chrome('stats');const lastHR=[...S.log].reverse().find(l=>l.type==='session'&&l.hr_series?.length)?.hr_series;
  const L=S.log.filter(l=>l.type==='session'),D=L.map(l=>l.post-l.pre),dz=mean(D)/sd(D);
  const rows=Object.keys(PR).map(p=>{const q=L.filter(l=>l.proto===p);if(!q.length)return'';const d=q.map(l=>l.post-l.pre);
@@ -310,8 +311,8 @@ function stats(){chrome('stats');const lastHR=[...S.log].reverse().find(l=>l.typ
  ${lastHR?'<div class="card"><h2>Пульс в последней сессии</h2><p class="m">По порядку записей, раз в 1,5 с</p><canvas id="c5"></canvas></div>':''}
  <button id="bk">Назад</button>`);
  const P=Object.keys(PR),ser=f=>P.map(p=>({n:PR[p].n.split(' ')[0],c:COL[p],v:L.filter(l=>l.proto===p).map(f)})).filter(q=>q.v.length);
- lines($('#c1'),ser(l=>l.lvl*100),{lo:0,hi:100});lines($('#c2'),[{n:'Δ',c:'#A9C8EC',v:D}]);lines($('#c3'),ser(l=>l.disc),{lo:0,hi:10});
- if(S.scans.length>1)radar($('#c4'),S.scans.at(-1).vuln,S.scans[0].vuln);if(lastHR)lines($('#c5'),[{n:'уд/мин',c:'#F4B9A0',v:lastHR.map(x=>x[1])}]);
+ lines($('#c1'),ser(l=>l.lvl*100),{lo:0,hi:100});lines($('#c2'),[{n:'Δ',c:cssv('--ac'),v:D}]);lines($('#c3'),ser(l=>l.disc),{lo:0,hi:10});
+ if(S.scans.length>1)radar($('#c4'),S.scans.at(-1).vuln,S.scans[0].vuln);if(lastHR)lines($('#c5'),[{n:'уд/мин',c:cssv('--wr'),v:lastHR.map(x=>x[1])}]);
  $('#bk').onclick=()=>home()}
 function csvDaily(){const g={};S.log.filter(l=>l.type==='session').forEach(l=>(g[l.day+'|'+l.proto]??=[]).push(l));
  const n=x=>Number.isFinite(x)?+x.toFixed(2):'',H='lesson,protocol,sessions,hr_pre_mean,hr_post_mean,hr_delta_mean,discomfort_mean,level_end,mean_rt_ms\n';
@@ -361,6 +362,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="card"><h2>Данные</h2><p class="m">Резервная копия содержит сессии, сканы и курсы. Файл можно восстановить на другом устройстве.</p>
  <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
  <input type="file" id="bkf" accept="application/json" hidden></div>
+ <div class="card"><h2>Тема</h2><div class="row"><button id="th1" class="${S.set.theme==='light'?'ghost':''}">Тёмная</button><button id="th2" class="${S.set.theme==='light'?'':'ghost'}">Светлая</button></div></div>
  <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="https://snr-os-scenario.example.workers.dev"><p class="m">Пусто: показываются стандартные тексты. Ключ API хранится на сервере, не в приложении. Инструкция: proxy/README.md.</p></div>
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
  <div class="row"><button id="bc" class="${HRM.connected()?'ghost':''}">${HRM.connected()?'Отключить':'Подключить датчик'}</button></div>
@@ -373,6 +375,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  $('#api').onchange=e=>{S.set.api=e.target.value.trim();save()};
  $('#bk1').onclick=exportData;$('#bk2').onclick=()=>$('#bkf').click();$('#bkf').onchange=importData;
  $('#wipe').onclick=wipeAll;
+ $('#th1').onclick=()=>{S.set.theme='dark';save();applyTheme();settings()};$('#th2').onclick=()=>{S.set.theme='light';save();applyTheme();settings()};
  $('#inst').onclick=async()=>{if(!deferredInstall)return;deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null;settings()};
  $('#bc').onclick=async()=>{
   if(HRM.connected()){HRM.dev.gatt.disconnect();return settings()}
@@ -403,4 +406,11 @@ async function wipeAll(){if(!confirm('Удалить все данные, кур
  if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();
  location.reload()}
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+applyTheme();
 home();
+
+function applyTheme(){
+ document.documentElement.dataset.theme=S.set.theme==='light'?'light':'dark';
+ const m=document.querySelector('meta[name="theme-color"]');if(m)m.content=S.set.theme==='light'?'#F8F6FC':'#1E1D2E';
+ COL.shield=cssv('--ac');COL.booster=cssv('--mint');COL.peak=cssv('--wr');COL.reset=cssv('--lav');
+}
