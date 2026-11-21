@@ -3,7 +3,7 @@
 
 /* ===== 1. Хранилище и утилиты ===== */
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='8.2';const KEY='snr_os_v1', PROBE=30;let LEN=180;
+const APP_VER='8.2';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
 // Миграция: старый скан имел 4 оси (вакуум — индекс 2). Убираем её из сохранённых результатов.
@@ -28,10 +28,17 @@ const A={ctx:null,nodes:[],timers:[],alive:false,
   if(!b){b=this.bufs[type]=c.createBuffer(1,c.sampleRate*2,c.sampleRate);const d=b.getChannelData(0);let l=0; // кэш: не пересчитываем 100k сэмплов
    for(let i=0;i<d.length;i++){const w=Math.random()*2-1;if(type==='brown'){l=(l+.02*w)/1.02;d[i]=l*3.5}else d[i]=w}}
   const s=c.createBufferSource();s.buffer=b;s.loop=true;s.start();this.nodes.push(s);return s},
- crowd(){const g=this.gain(0),n=this.noise('brown'),f=this.filt('lowpass',450);n.connect(f);f.connect(g);return g}, // гул толпы
+ crowd(){const out=this.gain(0),n=this.noise('white'),f=this.filt('bandpass',900,.6),f2=this.filt('bandpass',2400,.8),mod=this.ctx.createGain();
+  mod.gain.value=.6;const lfo=this.ctx.createOscillator();lfo.frequency.value=4.2;const ld=this.ctx.createGain();ld.gain.value=.45;
+  lfo.connect(ld);ld.connect(mod.gain);lfo.start();this.nodes.push(lfo,ld,mod);
+  n.connect(f);f.connect(f2);f2.connect(mod);mod.connect(out);return out}, // гул толпы
  tone(f,d=.2,v=.1,type='sine'){const c=this.ctx,o=c.createOscillator(),g=c.createGain(),t=c.currentTime;o.type=type;o.frequency.value=f;
   g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+Math.min(.05,d/3));g.gain.linearRampToValueAtTime(0,t+d);o.connect(g);g.connect(this.master);o.start(t);o.stop(t+d+.05)},
- click(v){this.tone(3500+Math.random()*2500,.03,v,'square')}, // резкий высокочастотный импульс
+ click(v){this.tone(3500+Math.random()*2500,.03,v,'square')},
+ tock(v){const c=this.ctx,t=c.currentTime,len=Math.floor(c.sampleRate*.03),b=c.createBuffer(1,len,c.sampleRate),d=b.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(len*.18));
+  const src=c.createBufferSource();src.buffer=b;const hp=c.createBiquadFilter();hp.type='highpass';hp.frequency.value=2200;
+  const g=c.createGain();g.gain.value=v;src.connect(hp);hp.connect(g);g.connect(this.master);src.start(t);this.tone(1700,.03,v*.5,'sine')}, // резкий высокочастотный импульс
  tick(hi){this.tone(hi?900:700,.04,.15)},
  every(fn,ms){this.timers.push(setInterval(fn,ms))},
  stop(){this.alive=false;this.timers.forEach(clearInterval);this.timers=[];this.nodes.forEach(n=>{try{n.stop?.()}catch(e){}try{n.disconnect()}catch(e){}});this.nodes=[]}};
@@ -88,7 +95,7 @@ const SETUP=[
   const o=A.ctx.createOscillator(),og=A.gain(.04);o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(7000,t+len);o.connect(og);o.start();A.nodes.push(o);
   let k=0;A.every(()=>A.click(.04+(++k/len)*.15),900)},
  ()=>{},
- len=>{const t0=performance.now();let hi=0;(function tk(){if(!A.alive)return;A.tick(hi^=1);setTimeout(tk,1000*60/(60+120*Math.min(1,(performance.now()-t0)/1000/len)))})()}];
+ len=>{const t0=performance.now();let hi=0;(function tk(){if(!A.alive)return;A.tock(hi^=1?.22:.14);setTimeout(tk,1000*60/(60+120*Math.min(1,(performance.now()-t0)/1000/len)))})()}];
 
 async function runProbe(i,len){ // i=-1 — базовый покой
  A.init();html(`<div class="vis ${i===1?'v1':''}"></div><h2>${i<0?'Базовый покой':PB[i].n}</h2><div id="cd" class="cd"></div><div class="bar"><i id="pg"></i></div><button id="stop" class="ghost">Прервать</button>`);
@@ -151,7 +158,7 @@ const SET={
  booster(c){const n=A.noise('white'),f=A.filt('bandpass',1600,.6),g=A.gain(.08);n.connect(f);f.connect(g);
   const ch=[[220,261.6,329.6],[174.6,220,261.6],[196,261.6,329.6],[196,246.9,293.7]];let k=0;const cd=()=>ch[k++%4].forEach(fr=>A.tone(fr,6,.035));cd();A.every(cd,6000);
   A.every(()=>A.tone(2000+Math.random()*1500,.1,.03),2500);reaction(c)},
- peak(c){const g=A.crowd();g.gain.value=.25+c.lvl*.4;A.every(()=>A.click(.06),2000);let h=0;A.every(()=>A.tick(h^=1),1000);math(c)},
+ peak(c){const g=A.crowd();g.gain.value=.25+c.lvl*.4;A.every(()=>A.click(.06),2000);let h=0;A.every(()=>A.tock(h^=1?.22:.14),1000);math(c)},
  async reset(c){const orb=$('#orb'),lb=$('#lbl'),st=Math.max(66,c.pre),x=A.ctx,mk=(f,pan)=>{const o=x.createOscillator(),p=x.createStereoPanner(),g=A.gain(.05);o.frequency.value=f;p.pan.value=pan;o.connect(p);p.connect(g);o.start();A.nodes.push(o);return o};
   mk(200,-1);const rr=mk(212,1),n=A.noise('brown');n.connect(A.gain(.05));const t0=Date.now(); // бинауральный бит 12→6 Гц (наушники)
   while(c.alive){const e=Math.min(1,(Date.now()-t0)/(LEN*1000)),bpm=st+(60-st)*e,p=60/bpm;rr.frequency.setTargetAtTime(206+6*(1-e),x.currentTime,.1);
@@ -173,7 +180,7 @@ function cleanScenario(j){if(!j||typeof j.title!=='string'||!Array.isArray(j.int
  const intro=j.intro.filter(x=>typeof x==='string').slice(0,4).map(x=>x.slice(0,200));
  return intro.length?{title:j.title.slice(0,60),intro}:null}
 async function fetchScenario(p){
- const url=S.set.api;if(!url||!navigator.onLine||!S.vuln)return null;
+ const url=S.set.api||SHARED_API;if(!navigator.onLine||!S.vuln)return null;
  const key=curDay()+'|'+p+'|'+S.vuln.join('.');
  const cache=JSON.parse(localStorage.getItem('snr_scn')||'{}');if(cache[key])return cache[key];
  const ctrl=new AbortController(),to=setTimeout(()=>ctrl.abort(),8000);
@@ -367,7 +374,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
  <input type="file" id="bkf" accept="application/json" hidden></div>
  <div class="card"><h2>Тема</h2><div class="row"><button id="th1" class="${S.set.theme==='light'?'ghost':''}">Тёмная</button><button id="th2" class="${S.set.theme==='light'?'':'ghost'}">Светлая</button></div></div>
- <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="https://snr-os-scenario.example.workers.dev"><p class="m">Пусто: показываются стандартные тексты. Ключ API хранится на сервере, не в приложении. Инструкция: proxy/README.md.</p></div>
+ <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="подключён автоматически"><p class="m">Сервер подключён автоматически и общий для всех. Поле нужно, только если хотите использовать свой сервер. Ключ API хранится на сервере, не в приложении.</p></div>
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
  <div class="row"><button id="bc" class="${HRM.connected()?'ghost':''}">${HRM.connected()?'Отключить':'Подключить датчик'}</button></div>
  <p class="m">Нагрудные ремни и часы, передающие стандартный пульс (Polar H10, Wahoo, Garmin и др.). Нужны Chrome на Android или ПК. Safari на iPhone Bluetooth в браузере не поддерживает.</p></div>
