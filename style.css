@@ -25,8 +25,8 @@ canvas{width:100%;max-width:340px;align-self:center}
 .q{font-size:2rem;text-align:center}.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cd{font-size:4rem;text-align:center;font-weight:200}
 .vis{position:fixed;inset:0;z-index:-1}
-.v1{background:repeating-conic-gradient(#fff 0 10deg,#000 0 20deg);-webkit-mask:radial-gradient(circle,transparent 35%,#000 70%);mask:radial-gradient(circle,transparent 35%,#000 70%);animation:fl .3s alternate infinite linear}
-@keyframes fl{from{opacity:.08}to{opacity:.6}}
+.v1{background:radial-gradient(ellipse at center,transparent 40%,rgba(169,200,236,.55) 100%);animation:fl 1s ease-in-out infinite alternate}
+@keyframes fl{from{opacity:.12}to{opacity:.4}}
 .v2{background:radial-gradient(ellipse at 30% 110%,var(--hill1) 40%,transparent 41%),radial-gradient(ellipse at 78% 115%,var(--hill2) 45%,transparent 46%),linear-gradient(var(--bg),var(--sf))}
 @media(prefers-reduced-motion:reduce){.v1{animation-duration:.8s}}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid b{display:block;font-size:1.5rem;font-weight:300}
