@@ -83,7 +83,7 @@ function pulseForm(title,withDisc,cb,pre){
  const bl=$('#bl');if(bl)bl.onclick=()=>{const v=HRM.fresh();if(v){$('#hr').value=v;$('#st').textContent='Пульс с датчика: '+v}else $('#st').textContent='Датчик не передаёт данные. Проверьте контакт.'};
  const camBtn=$('#cam');if(camBtn)camBtn.onclick=async()=>{try{const b=await R.measure(15,s=>$('#st').textContent='Смотрите в камеру… '+s);
   $('#st').textContent=b?'Пульс по камере: '+b:'Сигнал слабый. Добавьте света или введите пульс вручную.';if(b)$('#hr').value=b}catch(e){R.stop();$('#st').textContent='Нет доступа к камере. Введите пульс вручную.'}};
- $('#ok').onclick=()=>{const hr=+$('#hr').value;if(!(hr>=40&&hr<=200))return $('#st').textContent='Введите пульс от 40 до 200.';cb(hr,withDisc?+$('#ds').value:0)}}
+ $('#ok').onclick=()=>{const hr=+$('#hr').value;if(!(hr>=40&&hr<=200))return $('#st').textContent='Введите пульс от 40 до 200.';try{cb(hr,withDisc?+$('#ds').value:0)}catch(e){$('#st').textContent='Не удалось сохранить: '+e.message;console.error(e)}}}
 
 /* ===== 4. Сенсорный лабиринт ===== */
 const PB=[{n:'Акустический спектр',d:'Гул толпы и нарастающий свип до резких высоких импульсов. Нужны наушники.'},
@@ -301,7 +301,7 @@ function home(msg){
  const scanCard=`<div class="card hero"><span class="m">Начните здесь</span><h2>Сенсорный лабиринт</h2><p>Около 6 минут. Три короткие пробы покажут, какие раздражители вам трудно переносить. По итогам начнётся курс.</p><button id="scan">Запустить сенсорный лабиринт</button></div>`;
  const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${metaOf(nx.proto).n}</h2><p>${metaOf(nx.proto).short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${S.set.len/60} мин)</button></div>`:'';
  const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map((l,i,arr)=>`<div class="day done"><span class="dn">${l.lesson??(log.length-arr.length+i+1)}</span>${SHORT[l.proto]}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
- html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${msg?`<p class="toast">${msg}</p>`:''}
+ html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${S.admin?`<div class="adminbar"><label class="switch"><input type="checkbox" id="pvTop" ${S.preview?'checked':''}><span></span></label><span>${S.preview?'Предпросмотр: вы видите приложение как пользователь':'Режим администратора'}</span></div>`:''}${msg?`<p class="toast">${msg}</p>`:''}
  ${!has?scanCard:lessonCard}
  ${has?hero():''}
  ${has?path:''}
@@ -314,7 +314,7 @@ function home(msg){
  if(has){radar($('#rad'),S.vuln);dyn($('#dyn'))}
  document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>session(b.dataset.p));
  const sc=$('#scan');if(sc)sc.onclick=scan;
- $('#csv').onclick=csv;$('#csv2').onclick=csvDaily;$('#csv3').onclick=csvHR}
+ $('#csv').onclick=csv;$('#csv2').onclick=csvDaily;$('#csv3').onclick=csvHR;const pt=$('#pvTop');if(pt)pt.onchange=e=>{S.preview=e.target.checked?1:0;save();applyAdmin();home()}}
 
 /* ===== 7. Экспорт CSV ===== */
 function csv(){const H='type,time,day,protocol,hr_pre,hr_post,hr_delta,discomfort,level,eases,trials,errors,mean_rt_ms,correct\n';
@@ -406,7 +406,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
  <input type="file" id="bkf" accept="application/json" hidden></div>
  ${scheduleCard()}
- <div class="card"><h2>Администратор</h2>${S.admin?'<p class="m">Вход выполнен.</p><label><input type="checkbox" id="pv" '+(S.preview?'checked':'')+'> Режим предпросмотра: показать приложение так, как его видит пользователь</label><div class="row"><button id="chk" class="ghost">Проверить сервер</button><button id="alo" class="ghost">Выйти из режима администратора</button></div><p class="m" id="chkm"></p>':'<label>Пароль администратора</label><input id="apw" type="password" inputmode="numeric" autocomplete="off"><button id="ali">Войти</button><p class="m" id="alm"></p>'}</div>
+ <div class="card"><h2>Администратор</h2>${S.admin?'<p class="m">Вход выполнен.</p><label class="switch"><input type="checkbox" id="pv" '+(S.preview?'checked':'')+'><span></span></label> Предпросмотр: приложение как у пользователя<div class="row"><button id="chk" class="ghost">Проверить сервер</button><button id="alo" class="ghost">Выйти из режима администратора</button></div><p class="m" id="chkm"></p>':'<label>Пароль администратора</label><input id="apw" type="password" inputmode="numeric" autocomplete="off"><button id="ali">Войти</button><p class="m" id="alm"></p>'}</div>
  <div class="card"><h2>Тема</h2><div class="row"><button id="th1" class="${S.set.theme==='light'?'ghost':''}">Тёмная</button><button id="th2" class="${S.set.theme==='light'?'':'ghost'}">Светлая</button></div></div>
  <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="подключён автоматически"><p class="m">Сервер подключён автоматически и общий для всех. Поле нужно, только если хотите использовать свой сервер. Ключ API хранится на сервере, не в приложении.</p></div>
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
@@ -545,6 +545,12 @@ function delChat(k,id){S.chats=chatsAll().filter(c=>c.id!==id);if(S.active&&S.ac
 function saveProposal(p){S.library=S.library||[];const ex=S.library.find(x=>x.name===p.name&&x.base===p.base);
  if(ex){Object.assign(ex,p);save();return ex.id}
  const id='c_'+Date.now().toString(36);S.library.push({id,...p,source:'ai'});save();return id}
+function scenarioPrompt(extra){
+ const v=S.vuln||[],names=['звук','зрение','давление времени'];const top=v.length?v.indexOf(Math.max(...v)):-1;
+ const last=S.log.filter(l=>l.type==='session').slice(-5);
+ const ctx=`Контекст пользователя (без имени): главный спектр — ${top>=0?names[top]+' '+v[top]+'%':'не определён'}. `+
+  `Последние уроки: ${last.map(l=>`${metaOf(l.proto).n}, пульс ${l.post-l.pre>0?'+':''}${l.post-l.pre}, дискомфорт ${l.disc}`).join('; ')||'уроков ещё нет'}.`;
+ return ctx+'\n\n'+(extra||'Предложи 3–4 вымышленные ситуации в формате «Пульс повысился, когда …» для разных спектров (звук, зрение, тишина, давление времени, покой). Коротко опиши, что происходит в каждой. Я выберу одну, и мы доработаем её в протокол.')}
 function renderMsg(m,i){
  if(m.hidden)return '';
  const p=m.proposal;
@@ -565,7 +571,7 @@ async function sendMsg(text,opts={}){
 function aiScreen(k){
  k=k||AI_SUB;AI_SUB=k;chrome('ai');if(!isAdmin())return settings();
  const C=activeChat(k);
- if(k==='create'&&!C.msgs.length&&!C.autostarted){C.autostarted=true;save();setTimeout(()=>sendMsg('Предложи новую ситуацию для протокола: опиши её и что в ней происходит.',{hidden:true}),0)}
+ if(k==='create'&&!C.msgs.length&&!C.autostarted){C.autostarted=true;save();setTimeout(()=>sendMsg(scenarioPrompt(),{hidden:true}),0)}
  const list=chatsOf(k).slice().sort((x,y)=>(y.t||0)-(x.t||0));
  html(`<h2>ИИ</h2>
  <div class="row">${[['create','Создание протокола'],['chat','Чат']].map(([id,t])=>`<button data-aisub="${id}" class="${k===id?'':'ghost'}">${t}</button>`).join('')}</div>
@@ -576,7 +582,7 @@ function aiScreen(k){
   <div class="ai-main">
    <div class="row"><button id="togSide" class="ghost">☰ Чаты</button><span class="m">${esc(C.title)}</span></div>
    <div id="chat">${C.msgs.map((m,i)=>renderMsg(m,i)).join('')||'<p class="m">Сообщений пока нет.</p>'}</div>
-   <div class="card"><textarea id="inp" rows="3" placeholder="${k==='create'?'Ответьте на ситуацию или попросите оформить протокол':'Сообщение'}"></textarea>
+   ${k==='create'?'<div class="row"><button id="moreS" class="ghost">Другие ситуации</button></div>':''}<div class="card"><textarea id="inp" rows="3" placeholder="${k==='create'?'Ответьте на ситуацию или попросите оформить протокол':'Сообщение'}"></textarea>
     <div class="row"><button id="send">Отправить</button>${SR?'<button id="mic" class="ghost">Голос</button>':''}<label class="filebtn ghost">Файл<input type="file" id="att" hidden></label></div>
     <p class="m" id="sst"></p></div>
    ${k==='chat'?`<div class="card"><h3>Пульс и расписание</h3><div class="row"><button id="adv" class="ghost">Решение по пульсу</button><button id="sch" class="ghost">Составить расписание</button></div><p class="m" id="aiOut"></p><div id="aiRes"></div></div>`:''}
@@ -588,6 +594,7 @@ function aiScreen(k){
  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.sideOpen=false;setActive(k,b.dataset.pick)});
  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('Удалить чат?'))delChat(k,b.dataset.del)});
  $('#send').onclick=()=>sendMsg($('#inp').value);
+ if($('#moreS'))$('#moreS').onclick=()=>sendMsg(scenarioPrompt('Предложи другие ситуации, не повторяя прошлые: другие спектры и другие обстоятельства (когда пульс повысился). Формат: «Пульс повысился, когда …».'),{hidden:true});
  if($('#mic'))$('#mic').onclick=()=>{const rec=new SR();rec.lang='ru-RU';rec.interimResults=false;
   rec.onresult=e=>{$('#inp').value+=e.results[0][0].transcript};rec.onerror=()=>{$('#sst').textContent='Голос не распознан.'};rec.start();$('#sst').textContent='Говорите…'};
  $('#att').onchange=async e=>{const f=e.target.files[0];if(!f)return;
