@@ -490,7 +490,7 @@ async function lib(sub='proto'){
  chrome('lib');if(!isAdmin())return settings();
  const tabs=`<div class="row">${[['proto','Протоколы'],['sound','Звуки'],['media','Картинки и видео']].map(([k,v])=>`<button class="${sub===k?'':'ghost'}" data-sub="${k}">${v}</button>`).join('')}</div>`;
  if(sub==='proto'){
-  html(`<h2>Библиотека</h2>${tabs}`+Object.keys(PR).map(p=>`<div class="card"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}. Изменение протоколов появится после подключения советника и одобрения.</p></div>`).join('')+(S.library||[]).map(x=>`<div class="card"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description)}</p><p class="m">Основа: ${PR[x.base].n}. Из студии.</p></div>`).join(''));
+  html(`<h2>Библиотека</h2>${tabs}`+Object.keys(PR).map(p=>`<div class="card"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}. Изменение протоколов появится после подключения советника и одобрения.</p></div>`).join('')+(S.library||[]).map(x=>`<div class="card"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description)}</p><p class="m">Основа: ${PR[x.base].n}. Из студии.</p><button class="ghost" data-libtest="${x.id}">Тест</button></div>`).join(''));
  }else{
   const files=await libAll(sub);
   html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
@@ -503,7 +503,8 @@ async function lib(sub='proto'){
   if($('#lnkB'))$('#lnkB').onclick=()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p)return;p.sound_file=$('#lnkF').value;save();$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await libDel(b.dataset.del);lib(sub)});
  }
- document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub))}
+ document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub));
+ document.querySelectorAll('[data-libtest]').forEach(b=>b.onclick=()=>session(b.dataset.libtest))}
 
 async function syncLibrary(){
  try{const r=await fetch(SHARED_API+'/library');if(!r.ok)return;const j=await r.json();
@@ -531,46 +532,76 @@ async function callAdmin(body){
  const r=await fetch(SHARED_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,password:ADMIN_PW})});
  if(r.status===403){adminLogout();throw new Error('auth')}
  if(!r.ok)throw new Error('http '+r.status);return r.json()}
+let AI_SUB='create';
+const chatsAll=()=>{if(!S.chats){S.chats=[];if(S.studio&&S.studio.length)S.chats.push({id:'h_old',kind:'create',title:'Прошлый чат',msgs:S.studio,t:Date.now()})}return S.chats};
+const chatsOf=k=>chatsAll().filter(c=>c.kind===k);
+const newId=()=>'h'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+function activeChat(k){S.active=S.active||{};let c=chatsOf(k).find(x=>x.id===S.active[k]);
+ if(!c){c={id:newId(),kind:k,title:'Новый чат',msgs:[],t:Date.now()};chatsAll().push(c);S.active[k]=c.id;save()}return c}
+function newChat(k){S.active=S.active||{};const c={id:newId(),kind:k,title:'Новый чат',msgs:[],t:Date.now()};chatsAll().push(c);S.active[k]=c.id;
+ S.chats=chatsAll().slice(-60);save();aiScreen(k)}
+function setActive(k,id){S.active=S.active||{};S.active[k]=id;save();aiScreen(k)}
+function delChat(k,id){S.chats=chatsAll().filter(c=>c.id!==id);if(S.active&&S.active[k]===id)S.active[k]=null;save();aiScreen(k)}
+function saveProposal(p){S.library=S.library||[];const ex=S.library.find(x=>x.name===p.name&&x.base===p.base);
+ if(ex){Object.assign(ex,p);save();return ex.id}
+ const id='c_'+Date.now().toString(36);S.library.push({id,...p,source:'ai'});save();return id}
 function renderMsg(m,i){
+ if(m.hidden)return '';
  const p=m.proposal;
  const card=p?`<div class="card"><b>${esc(p.name)}</b> <span class="m">основа: ${PR[p.base].n}, ${p.duration_s} с</span><p>${esc(p.description)}</p>
   <ol class="steps">${p.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>
   <p class="m">Звук: ${esc(p.sound.join(', ')||'—')}. Визуально: ${esc(p.visual.join(', ')||'—')}. Остановка при дискомфорте от ${p.stop_if_discomfort}/10.</p>
-  <button data-save="${i}">В библиотеку</button> <button class="ghost" data-fix="${i}">Доработать</button></div>`:'';
+  <button data-save="${i}">В библиотеку</button> <button data-test="${i}" class="ghost">Тест</button> <button class="ghost" data-fix="${i}">Доработать</button></div>`:'';
  return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${card}</div>`}
-async function sendMsg(text){
+async function sendMsg(text,opts={}){
+ const k=AI_SUB,C=activeChat(k);
  text=(text||'').trim();if(!text)return;
- S.studio=[...(S.studio||[]),{role:'user',content:text}];save();aiScreen();
- $('#sst').textContent='ИИ думает…';
- try{const r=await callAdmin({action:'chat',messages:S.studio.slice(-20).map(m=>({role:m.role,content:m.content}))});
-  S.studio=[...S.studio,{role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null}].slice(-40);save();aiScreen();
- }catch(e){aiScreen();$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
-function aiScreen(){
- chrome('ai');if(!isAdmin())return settings();
- const msgs=S.studio||[];
- html(`<h2>Студия</h2>
- <div class="card"><p class="m">Опишите протокол, который нужен. ИИ предложит вымышленный сценарий, его можно обсуждать и доработать. Одобренный протокол попадает в библиотеку.</p></div>
- <div id="chat">${msgs.map((m,i)=>renderMsg(m,i)).join('')||'<p class="m">Сообщений пока нет.</p>'}</div>
- <div class="card"><textarea id="inp" rows="3" placeholder="Задача или замечание"></textarea>
-  <div class="row"><button id="send">Отправить</button>${SR?'<button id="mic" class="ghost">Голос</button>':''}<label class="filebtn ghost">Файл<input type="file" id="att" hidden></label></div>
-  <p class="m" id="sst"></p></div>
- <div class="card"><h3>Пульс и расписание</h3><div class="row"><button id="adv" class="ghost">Решение по пульсу</button><button id="sch" class="ghost">Составить расписание</button></div><p class="m" id="aiOut"></p><div id="aiRes"></div></div>`);
- const c=$('#chat');if(c&&c.lastElementChild)c.lastElementChild.scrollIntoView({block:'end'});
- $('#send').onclick=()=>{const v=$('#inp').value;sendMsg(v)};
+ C.msgs.push({role:'user',content:text,hidden:!!opts.hidden});
+ if(C.title==='Новый чат'&&!opts.hidden)C.title=text.slice(0,40);
+ save();aiScreen(k);$('#sst').textContent='ИИ думает…';
+ try{const r=await callAdmin({action:'chat',mode:k==='create'?'create':'chat',messages:C.msgs.slice(-20).map(m=>({role:m.role,content:m.content}))});
+  C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();save();aiScreen(k);
+ }catch(e){aiScreen(k);$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
+function aiScreen(k){
+ k=k||AI_SUB;AI_SUB=k;chrome('ai');if(!isAdmin())return settings();
+ const C=activeChat(k);
+ if(k==='create'&&!C.msgs.length&&!C.autostarted){C.autostarted=true;save();setTimeout(()=>sendMsg('Предложи новую ситуацию для протокола: опиши её и что в ней происходит.',{hidden:true}),0)}
+ const list=chatsOf(k).slice().sort((x,y)=>(y.t||0)-(x.t||0));
+ html(`<h2>ИИ</h2>
+ <div class="row">${[['create','Создание протокола'],['chat','Чат']].map(([id,t])=>`<button data-aisub="${id}" class="${k===id?'':'ghost'}">${t}</button>`).join('')}</div>
+ <div class="ai-wrap">
+  <aside class="side ${S.sideOpen?'open':''}"><button id="newC" class="ghost">+ Новый чат</button>
+   ${list.map(c=>`<div class="citem ${c.id===C.id?'on':''}"><span data-pick="${c.id}">${esc(c.title)}</span><button class="ghost" data-del="${c.id}">✕</button></div>`).join('')}
+  </aside>
+  <div class="ai-main">
+   <div class="row"><button id="togSide" class="ghost">☰ Чаты</button><span class="m">${esc(C.title)}</span></div>
+   <div id="chat">${C.msgs.map((m,i)=>renderMsg(m,i)).join('')||'<p class="m">Сообщений пока нет.</p>'}</div>
+   <div class="card"><textarea id="inp" rows="3" placeholder="${k==='create'?'Ответьте на ситуацию или попросите оформить протокол':'Сообщение'}"></textarea>
+    <div class="row"><button id="send">Отправить</button>${SR?'<button id="mic" class="ghost">Голос</button>':''}<label class="filebtn ghost">Файл<input type="file" id="att" hidden></label></div>
+    <p class="m" id="sst"></p></div>
+   ${k==='chat'?`<div class="card"><h3>Пульс и расписание</h3><div class="row"><button id="adv" class="ghost">Решение по пульсу</button><button id="sch" class="ghost">Составить расписание</button></div><p class="m" id="aiOut"></p><div id="aiRes"></div></div>`:''}
+  </div>
+ </div>`);
+ document.querySelectorAll('[data-aisub]').forEach(b=>b.onclick=()=>aiScreen(b.dataset.aisub));
+ $('#togSide').onclick=()=>{S.sideOpen=!S.sideOpen;save();aiScreen(k)};
+ $('#newC').onclick=()=>newChat(k);
+ document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.sideOpen=false;setActive(k,b.dataset.pick)});
+ document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('Удалить чат?'))delChat(k,b.dataset.del)});
+ $('#send').onclick=()=>sendMsg($('#inp').value);
  if($('#mic'))$('#mic').onclick=()=>{const rec=new SR();rec.lang='ru-RU';rec.interimResults=false;
   rec.onresult=e=>{$('#inp').value+=e.results[0][0].transcript};rec.onerror=()=>{$('#sst').textContent='Голос не распознан.'};rec.start();$('#sst').textContent='Говорите…'};
  $('#att').onchange=async e=>{const f=e.target.files[0];if(!f)return;
   if(/text\/|json|\.md$|\.txt$/.test(f.type+' '+f.name)){const t=(await f.text()).slice(0,4000);sendMsg('Вложение «'+f.name+'»:\n'+t)}
   else{await libAdd('media',f);$('#sst').textContent='Файл сохранён в библиотеку: '+f.name}};
- document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{const p=S.studio[+b.dataset.save].proposal;
-  S.library=[...(S.library||[]),{id:'c_'+Date.now().toString(36),...p,source:'ai'}];save();$('#sst').textContent='«'+p.name+'» сохранён в библиотеку.'});
- document.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{$('#inp').value='Доработай протокол «'+S.studio[+b.dataset.fix].proposal.name+'»: ';$('#inp').focus()});
- $('#adv').onclick=async()=>{$('#aiOut').textContent='Думаю…';
+ document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{const p=C.msgs[+b.dataset.save].proposal;saveProposal(p);$('#sst').textContent='«'+p.name+'» сохранён в библиотеку.'});
+ document.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>{const p=C.msgs[+b.dataset.test].proposal;session(saveProposal(p))});
+ document.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{$('#inp').value='Доработай протокол «'+C.msgs[+b.dataset.fix].proposal.name+'»: ';$('#inp').focus()});
+ if($('#adv'))$('#adv').onclick=async()=>{$('#aiOut').textContent='Думаю…';
   try{const a=await callAdmin({action:'advise',summary:adviseSummary()});$('#aiOut').textContent='';
    $('#aiRes').innerHTML=`<div class="card hero"><span class="m">${a.significant_change?'Изменение значимое':'Изменение незначимое'}</span><p>${esc(a.summary)}</p><h3>Следующий: ${esc(protoName(a.next_protocol))}</h3><p class="m">${esc(a.reason)}</p><button id="apply">Применить к уроку ${curDay()}</button></div>`;
    $('#apply').onclick=()=>{S.aiNext={lesson:curDay(),proto:a.next_protocol,reason:a.reason};save();$('#aiOut').textContent='Применено.'}}
   catch(e){$('#aiOut').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером.'}};
- $('#sch').onclick=async()=>{$('#aiOut').textContent='Составляю расписание…';
+ if($('#sch'))$('#sch').onclick=async()=>{$('#aiOut').textContent='Составляю расписание…';
   try{const r=await callAdmin({action:'schedule',library:libProtos().map(x=>({id:x.id,name:x.name,base:x.base,description:x.description})),summary:adviseSummary(),days:14});
    S.schedule=r.schedule;save();$('#aiOut').textContent='Расписание составлено. Его можно изменить в Настройках → Расписание.'}
   catch(e){$('#aiOut').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Не удалось составить расписание.'}}}
