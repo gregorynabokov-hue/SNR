@@ -73,3 +73,4 @@ details summary{color:var(--link)}
 
 .path .day{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:64px;text-align:center;line-height:1.3}
 .path .dn{font-size:.7rem;opacity:.75}
+#tabs button{flex:1 1 0;min-width:0;font-size:.82rem;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

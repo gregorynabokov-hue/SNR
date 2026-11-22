@@ -2,6 +2,7 @@
 /* СНР OS v1 — Vanilla JS. Разделы: 1 хранилище · 2 аудио · 3 пульс (ввод/rPPG) · 4 сканер · 5 сессии · 6 экраны · 7 CSV */
 
 /* ===== 1. Хранилище и утилиты ===== */
+const isAdmin=()=>!!(S.admin&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const APP_VER='8.2';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
@@ -10,7 +11,7 @@ const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
 if(S.vuln&&S.vuln.length===4)S.vuln=[S.vuln[0],S.vuln[1],S.vuln[3]];
 (S.scans||[]).forEach(x=>{if(x.vuln&&x.vuln.length===4)x.vuln=[x.vuln[0],x.vuln[1],x.vuln[3]]});
 const vib=n=>S.set.vib&&navigator.vibrate?.(n);
-const chrome=n=>{document.body.classList.remove('run');document.querySelectorAll('#tabs button').forEach(b=>{const on=b.dataset.t===n;b.classList.toggle('on',on);b.setAttribute('aria-current',on?'page':'false')})};
+const chrome=n=>{document.body.classList.remove('run');document.querySelectorAll('#tabs button').forEach(b=>{const on=b.dataset.t===n;b.classList.toggle('on',on);b.setAttribute('aria-current',on?'page':'false')});applyAdmin()};
 const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $=s=>document.querySelector(s), app=$('#app'), html=h=>{app.innerHTML=h;app.classList.remove('fade');void app.offsetWidth;app.classList.add('fade')};
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)), sleep=ms=>new Promise(r=>setTimeout(r,ms)), rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
@@ -29,9 +30,7 @@ const A={ctx:null,nodes:[],timers:[],alive:false,
    for(let i=0;i<d.length;i++){const w=Math.random()*2-1;if(type==='brown'){l=(l+.02*w)/1.02;d[i]=l*3.5}else d[i]=w}}
   const s=c.createBufferSource();s.buffer=b;s.loop=true;s.start();this.nodes.push(s);return s},
  crowd(){const out=this.gain(0),n=this.noise('white'),f=this.filt('bandpass',900,.6),f2=this.filt('bandpass',2400,.8),mod=this.ctx.createGain();
-  mod.gain.value=.6;const lfo=this.ctx.createOscillator();lfo.frequency.value=4.2;const ld=this.ctx.createGain();ld.gain.value=.45;
-  lfo.connect(ld);ld.connect(mod.gain);lfo.start();this.nodes.push(lfo,ld,mod);
-  n.connect(f);f.connect(f2);f2.connect(mod);mod.connect(out);return out}, // гул толпы
+  mod.gain.value=.6;out.mod=mod;n.connect(f);f.connect(f2);f2.connect(mod);mod.connect(out);return out}, // гул толпы
  tone(f,d=.2,v=.1,type='sine'){const c=this.ctx,o=c.createOscillator(),g=c.createGain(),t=c.currentTime;o.type=type;o.frequency.value=f;
   g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+Math.min(.05,d/3));g.gain.linearRampToValueAtTime(0,t+d);o.connect(g);g.connect(this.master);o.start(t);o.stop(t+d+.05)},
  click(v){this.tone(3500+Math.random()*2500,.03,v,'square')},
@@ -92,8 +91,7 @@ const PB=[{n:'Акустический спектр',d:'Гул толпы и н�
  {n:'Когнитивно-социальный прессинг',d:'Часы тикают всё быстрее. Время давит.'}];
 const SETUP=[
  len=>{const g=A.crowd(),t=A.ctx.currentTime;g.gain.setValueAtTime(.05,t);g.gain.linearRampToValueAtTime(.7,t+len);
-  const o=A.ctx.createOscillator(),og=A.gain(.04);o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(7000,t+len);o.connect(og);o.start();A.nodes.push(o);
-  let k=0;A.every(()=>A.click(.04+(++k/len)*.15),900)},
+  A.every(()=>{if(g.mod)g.mod.gain.setTargetAtTime(.25+Math.random()*.75,A.ctx.currentTime,.09)},170)},
  ()=>{},
  len=>{const t0=performance.now();let hi=0;(function tk(){if(!A.alive)return;A.tock(hi^=1?.22:.14);setTimeout(tk,1000*60/(60+120*Math.min(1,(performance.now()-t0)/1000/len)))})()}];
 
@@ -191,52 +189,86 @@ async function fetchScenario(p){
  catch(e){return null}finally{clearTimeout(to)}}
 function localIntro(p){const v=S.vuln||[0,0,0,0],top=AX[v.indexOf(Math.max(...v))].toLowerCase();
  const last=S.log.filter(l=>l.type==='session').at(-1);
- return {title:PR[p].n,intro:[`Сегодня: ${PR[p].n.toLowerCase()}. По вашему скану сильнее всего нагружен спектр «${top}».`,
+ return {title:metaOf(p).n,intro:[`Сегодня: ${metaOf(p).n.toLowerCase()}. По вашему скану сильнее всего нагружен спектр «${top}».`,
   last&&last.post<last.pre?'В прошлый раз пульс снизился. Повторите то, что помогло.':'Не спешите. Дыхание важнее результата.',
   'Сядьте удобно и начинайте, когда будете готовы.']}}
-function brief(p){chrome('home');const b=BRIEF[p];
- html(`${ICON[p]}<h2>${PR[p].n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
+function brief(p){chrome('home');const b=metaOf(p);
+ html(`${ICON[metaOf(p).base]||''}<h2>${metaOf(p).n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
  <div class="card" id="ai"><span class="m">Вступление к сессии</span><p id="aiT">Готовим вступление…</p></div>
  <div class="card"><h2>Как проходить</h2><ol class="steps">${b.steps.map(x=>`<li>${x}</li>`).join('')}</ol></div>
  <div class="card"><p class="m">Перед стартом измерим пульс: датчиком, камерой или вручную. После сессии спросим про самочувствие.</p></div>
  <button id="go">Начать</button><button id="back" class="ghost">Назад</button>`);
  $('#back').onclick=()=>home();$('#go').onclick=()=>sessionRun(p);
- fetchScenario(p).then(sc0=>{const sc=sc0||localIntro(p);const box=$('#ai');if(!box)return;box.innerHTML='';
+ fetchScenario(metaOf(p).base).then(sc0=>{const sc=sc0||localIntro(p);const box=$('#ai');if(!box)return;box.innerHTML='';
   const lab=document.createElement('span');lab.className='m';lab.textContent='Вступление к сессии';box.append(lab);
   
   const h=document.createElement('h3');h.textContent=sc.title;box.append(h);
   sc.intro.forEach(x=>{const q=document.createElement('p');q.textContent=x;box.append(q)})})}
-function sessionRun(p){document.body.classList.add('run');pulseForm(PR[p].n+': пульс до',false,pre=>{A.init();LEN=S.set.len;
-  const c={p,pre,alive:true,lvl:S.lv[p]??.2,eases:0,auto:0,res:{}};
-  html(`<h2>${PR[p].n}</h2><div class="stage ${PR[p].orb?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
+function withPre(p,cb){
+ if(!HRM.connected())return pulseForm(metaOf(p).n+': пульс до',false,cb);
+ html(`<h2>${metaOf(p).n}</h2><p class="m">Измеряем покой с датчика: 10 секунд. Сидите спокойно.</p><div id="cd" class="cd">10</div>`);
+ const stop=sensorSample();let k=10;const iv=setInterval(()=>{k--;const el=$('#cd');if(el)el.textContent=Math.max(0,k)},1000);
+ setTimeout(()=>{clearInterval(iv);cb(med(stop())||HRM.fresh()||S.base||70)},10000)}
+function discForm(post,cb){
+ html(`<h2>Как вы себя чувствуете?</h2><p class="m">Пульс после сессии записан с датчика: ${post} уд/мин.</p><label>Дискомфорт: <b id="dv">0</b>/10</label><input id="ds" type="range" min="0" max="10" value="0"><button id="ok">Дальше</button>`);
+ $('#ds').oninput=e=>$('#dv').textContent=e.target.value;$('#ok').onclick=()=>cb(post,+$('#ds').value)}
+function sessionRun(p){document.body.classList.add('run');const base=metaOf(p).base,cust=PR[p]?null:findCustom(p);withPre(p,pre=>{A.init();LEN=S.set.len;
+  const c={p:base,custom:cust?cust.id:null,pre,alive:true,lvl:S.lv[base]??.2,eases:0,auto:0,res:{}};
+  html(`<h2>${metaOf(p).n}</h2><div class="stage ${PR[base].orb?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
   <div class="session-foot"><p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div></div>`);
   const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
-  const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();R.stop();c.wl?.release();finish(c)};
+  const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();finish(c)};
   $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
   c.hrs=[];c.gaps=0;
   const hrl=$('#hrl');
   const tick=()=>{const sec=Math.round((Date.now()-t0)/1000),ble=HRM.fresh(),b=ble??(S.cam&&!HRM.connected()?R.bpm():null),src=ble?'ble':'cam';
    if(b){c.hrs.push([sec,b,src]);hrl.textContent='Пульс: '+b+' уд/мин'+(ble?' (датчик)':'');
-    if(S.base&&b>S.base*1.15&&p!=='reset'&&c.hrs.length>3){c.lvl*=.85;c.auto++;c.apply?.()}}
+    if(S.base&&b>S.base*1.15&&base!=='reset'&&c.hrs.length>3){c.lvl*=.85;c.auto++;c.apply?.()}}
    else{c.gaps++;hrl.textContent='Пульс: нет сигнала'+(HRM.connected()?' от датчика':', смотрите в камеру')}};
   const start=()=>{c.samp=setInterval(tick,1500)}; // запись каждые 1,5 с
   if(HRM.connected()){hrl.textContent='Пульс: датчик подключён';start()}
   else if(S.cam)R.start().then(()=>{hrl.textContent='Пульс: сбор данных…';start()}).catch(()=>{hrl.textContent='Камера недоступна: пульс не записывается'});
   else hrl.textContent='Запись пульса выключена: подключите датчик или включите камеру в настройках';
-  setTimeout(()=>{if(c.alive)SET[p](c)},50); // orb: старт с scale(.45) из CSS
+  setTimeout(()=>{if(c.alive){SET[base](c);if(cust)startLayers(cust)}},50); // orb: старт с scale(.45) из CSS
   const pg=$('#pg');pg.style.transition=`width ${LEN}s linear`;requestAnimationFrame(()=>pg.style.width='100%');
   iv=setInterval(()=>{if(Date.now()-t0>=LEN*1000)end()},500)})}
-function finish(c){pulseForm('Как вы себя чувствуете? Пульс после',true,(post,disc)=>{
+let CUST_AUDIO=null;
+function startLayers(cust){
+ const snd=cust.sound||[],vis=cust.visual||[];
+ if(snd.includes('гул')){const g=A.crowd();g.gain.value=.35;A.every(()=>{if(g.mod)g.mod.gain.setTargetAtTime(.25+Math.random()*.75,A.ctx.currentTime,.09)},170)}
+ if(snd.includes('тиканье'))A.every(()=>A.tock(.18),1000);
+ if(snd.includes('шелест'))A.every(()=>{const n=A.noise('white'),f=A.filt('bandpass',4500,.9),g=A.gain(0);n.connect(f);f.connect(g);
+  const t=A.ctx.currentTime;g.gain.setValueAtTime(.05,t);g.gain.exponentialRampToValueAtTime(.0001,t+.15);setTimeout(()=>{try{n.stop()}catch(e){}},200)},600);
+ if(snd.includes('дыхание'))A.every(()=>A.tone(220,1.2,.03),3000);
+ if(vis.includes('мягкое свечение'))document.body.insertAdjacentHTML('beforeend','<div class="vis v1 custom-glow"></div>');
+ if(cust.sound_file)playLinkedFile(cust.sound_file)}
+async function playLinkedFile(id){
+ try{const remote=(S.pubFiles||[]).find(f=>f.id===id);
+  let url=null;
+  if(remote)url=SHARED_API+'/files/'+id;
+  else{const db=await libDB();const rec=await new Promise(res=>{const q=db.transaction('files').objectStore('files').get(id);q.onsuccess=()=>res(q.result)});
+   if(rec)url=URL.createObjectURL(rec.blob)}
+  if(!url)return;
+  CUST_AUDIO=new Audio(url);CUST_AUDIO.loop=true;CUST_AUDIO.volume=.5;CUST_AUDIO.play().catch(()=>{})}catch(e){}}
+function stopLayers(){
+ document.querySelectorAll('.custom-glow').forEach(e=>e.remove());
+ if(CUST_AUDIO){CUST_AUDIO.pause();CUST_AUDIO=null}}
+function finish(c){const afterForm=cb=>{if(HRM.connected()){const post=med((c.hrs||[]).slice(-10).map(x=>x[1]))||c.pre;discForm(post,cb)}else pulseForm('Как вы себя чувствуете? Пульс после',true,cb)};
+afterForm((post,disc)=>{
  const good=disc<=4&&c.eases<=1;S.lv[c.p]=clamp(c.lvl+(good?.05:-.08),.1,1);
- S.log.push({type:'session',v:APP_VER,t:new Date().toISOString(),day:curDay(),lesson:curDay(),planned:(curDay()-(S.courseStart||0))<=14?S.plan[curDay()-(S.courseStart||0)]:null,proto:c.p,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
+ S.log.push({type:'session',v:APP_VER,t:new Date().toISOString(),day:curDay(),lesson:curDay(),planned:(curDay()-(S.courseStart||0))<=14?S.plan[curDay()-(S.courseStart||0)]:null,proto:c.p,custom:c.custom||null,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
  save();summary(S.log.at(-1))})}
 
 /* ===== 6. Экраны, графики ===== */
 const lessonCount=()=>S.log.filter(l=>l.type==='session').length;
 const curDay=()=>lessonCount()+1;
 // Первые 4 урока — из скана. Дальше протокол подстраивается под реакцию на прошлый урок.
+const PROTOS_OK=['shield','booster','peak','reset'];
 function nextLesson(){
  const n=curDay(),k=n-(S.courseStart||0);
+ if(S.aiNext&&S.aiNext.lesson===n&&PROTOS_OK.includes(S.aiNext.proto))return {n,proto:S.aiNext.proto,why:'Решение советника ИИ, подтверждено администратором: '+S.aiNext.reason};
+ const sc=(S.schedule||[]).find(x=>x.lesson===n-(S.courseStart||0));
+ if(sc)return {n,proto:sc.id,why:'Расписание: '+protoName(sc.id)+(sc.note?' — '+sc.note:'')};
  if(!S.vuln)return {n,proto:null,why:'Сначала пройдите сенсорный лабиринт.'};
  const rank=S.vuln.map((_,i)=>i).sort((a,b)=>S.vuln[b]-S.vuln[a]);
  if(k<=4)return {n,proto:S.plan[k],why:`Начальный урок из скана: главный спектр «${AX[rank[0]].toLowerCase()}» (${S.vuln[rank[0]]}%).`};
@@ -264,10 +296,10 @@ const ICON={shield:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><pa
  peak:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18" fill="none" style="stroke:var(--wr)" stroke-width="2.4"/><path d="M24 12v12l8 5" fill="none" style="stroke:var(--wr)" stroke-width="2.4" stroke-linecap="round"/></svg>',
  reset:'<svg class="pico" viewBox="0 0 48 48" aria-hidden="true"><path d="M30 6a18 18 0 1 0 12 26A14 14 0 0 1 30 6z" fill="none" style="stroke:var(--lav)" stroke-width="2.4"/></svg>'};
 function home(msg){
- if(!S.seen)return onboard();chrome('home');
+ if(!S.seen)return onboard();chrome('home');if(navigator.onLine)syncLibrary();
  const has=!!S.vuln,nx=nextLesson(),log=S.log.filter(l=>l.type==='session');
  const scanCard=`<div class="card hero"><span class="m">Начните здесь</span><h2>Сенсорный лабиринт</h2><p>Около 6 минут. Три короткие пробы покажут, какие раздражители вам трудно переносить. По итогам начнётся курс.</p><button id="scan">Запустить сенсорный лабиринт</button></div>`;
- const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${PR[nx.proto].n}</h2><p>${BRIEF[nx.proto].short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${S.set.len/60} мин)</button></div>`:'';
+ const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${metaOf(nx.proto).n}</h2><p>${metaOf(nx.proto).short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${S.set.len/60} мин)</button></div>`:'';
  const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map((l,i,arr)=>`<div class="day done"><span class="dn">${l.lesson??(log.length-arr.length+i+1)}</span>${SHORT[l.proto]}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
  html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${msg?`<p class="toast">${msg}</p>`:''}
  ${!has?scanCard:lessonCard}
@@ -373,6 +405,8 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="card"><h2>Данные</h2><p class="m">Резервная копия содержит сессии, сканы и курсы. Файл можно восстановить на другом устройстве.</p>
  <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
  <input type="file" id="bkf" accept="application/json" hidden></div>
+ ${scheduleCard()}
+ <div class="card"><h2>Администратор</h2>${S.admin?'<p class="m">Вход выполнен.</p><label><input type="checkbox" id="pv" '+(S.preview?'checked':'')+'> Режим предпросмотра: показать приложение так, как его видит пользователь</label><div class="row"><button id="chk" class="ghost">Проверить сервер</button><button id="alo" class="ghost">Выйти из режима администратора</button></div><p class="m" id="chkm"></p>':'<label>Пароль администратора</label><input id="apw" type="password" inputmode="numeric" autocomplete="off"><button id="ali">Войти</button><p class="m" id="alm"></p>'}</div>
  <div class="card"><h2>Тема</h2><div class="row"><button id="th1" class="${S.set.theme==='light'?'ghost':''}">Тёмная</button><button id="th2" class="${S.set.theme==='light'?'':'ghost'}">Светлая</button></div></div>
  <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="подключён автоматически"><p class="m">Сервер подключён автоматически и общий для всех. Поле нужно, только если хотите использовать свой сервер. Ключ API хранится на сервере, не в приложении.</p></div>
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
@@ -386,14 +420,26 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  $('#api').onchange=e=>{S.set.api=e.target.value.trim();save()};
  $('#bk1').onclick=exportData;$('#bk2').onclick=()=>$('#bkf').click();$('#bkf').onchange=importData;
  $('#wipe').onclick=wipeAll;
- $('#th1').onclick=()=>{S.set.theme='dark';save();applyTheme();settings()};$('#th2').onclick=()=>{S.set.theme='light';save();applyTheme();settings()};
+ $('#th1').onclick=()=>{S.set.theme='dark';save();applyTheme();settings()};
+ if($('#alo'))$('#alo').onclick=()=>{adminLogout();settings()};
+ if($('#pv'))$('#pv').onchange=e=>{S.preview=e.target.checked?1:0;save();applyAdmin();settings()};
+ if($('#chk'))$('#chk').onclick=async()=>{$('#chkm').textContent='Проверка…';
+  if(!ADMIN_PW){$('#chkm').textContent='Пароль не сохранён после перезагрузки. Выйдите и войдите заново.';return}
+  try{const r=await fetch(SHARED_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'admin-check',password:ADMIN_PW})});
+   $('#chkm').textContent=r.ok?'Сервер отвечает, пароль принят.':r.status===403?'Сервер не принял пароль (проверьте ADMIN_PASSWORD).':'Сервер ответил кодом '+r.status+'.'}
+  catch(e){$('#chkm').textContent='Нет связи: '+e.message+'. Проверьте VPN и адрес сервера.'}};
+ document.querySelectorAll('[data-si]').forEach(sel=>sel.onchange=e=>{S.schedule[+sel.dataset.si].id=e.target.value;save()});
+ if($('#sclr'))$('#sclr').onclick=()=>{S.schedule=[];save();settings()};
+ if($('#ali'))$('#ali').onclick=async()=>{const pw=$('#apw').value;$('#alm').textContent='Проверка…';
+  let ok=false;try{ok=await adminLogin(pw)}catch(e){}
+  if(ok)settings();else $('#alm').textContent=pw?'Неверный пароль или нет связи с сервером.':'Введите пароль.'};$('#th2').onclick=()=>{S.set.theme='light';save();applyTheme();settings()};
  $('#inst').onclick=async()=>{if(!deferredInstall)return;deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null;settings()};
  $('#bc').onclick=async()=>{
   if(HRM.connected()){HRM.dev.gatt.disconnect();return settings()}
   try{$('#bst').textContent='Поиск датчика…';await HRM.connect();settings()}
   catch(e){settings();$('#bst').textContent=e.name==='NotFoundError'?'Датчик не выбран':'Не подключено: '+e.message}};
  }
-$('#tabs').onclick=e=>{const t=e.target.closest('button')?.dataset.t;if(t)({home:()=>home(),stats,set:settings})[t]()};
+$('#tabs').onclick=e=>{const t=e.target.closest('button')?.dataset.t;if(t)({home:()=>home(),stats,set:settings,lib:()=>lib('proto'),ai:()=>aiScreen()})[t]()};
 
 function csvHR(){const rows=S.log.filter(l=>l.type==='session'&&l.hr_series?.length).flatMap(l=>l.hr_series.map(([sec,b,src='cam'])=>[l.t,l.day??'',l.proto,sec,b,src].join(','))).join('\n');
  if(!rows)return alert('Пока нет записей пульса. Включите запись пульса камерой в настройках и пройдите сессию.');
@@ -425,3 +471,112 @@ function applyTheme(){
  const m=document.querySelector('meta[name="theme-color"]');if(m)m.content=S.set.theme==='light'?'#F8F6FC':'#1E1D2E';
  COL.shield=cssv('--ac');COL.booster=cssv('--mint');COL.peak=cssv('--wr');COL.reset=cssv('--lav');
 }
+
+/* ===== 10. Администратор: вход, библиотека, советник ИИ ===== */
+let ADMIN_PW='';
+function applyAdmin(){document.querySelectorAll('[data-t=lib],[data-t=ai]').forEach(b=>b.hidden=!isAdmin())}
+async function adminLogin(pw){
+ const r=await fetch(SHARED_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'admin-check',password:pw})});
+ if(!r.ok)return false;ADMIN_PW=pw;S.admin=1;save();applyAdmin();return true}
+function adminLogout(){ADMIN_PW='';S.admin=0;save();applyAdmin()}
+function libDB(){return new Promise((res,rej)=>{const r=indexedDB.open('snr-lib',1);r.onupgradeneeded=()=>r.result.createObjectStore('files',{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function libAll(kind){const db=await libDB();return new Promise(res=>{const q=db.transaction('files').objectStore('files').getAll();q.onsuccess=()=>res(q.result.filter(x=>x.kind===kind))})}
+async function libAdd(kind,file){const db=await libDB();const rec={id:Date.now()+'-'+Math.random().toString(36).slice(2,7),kind,name:file.name,type:file.type,size:file.size,blob:file};
+ return new Promise((res,rej)=>{const t=db.transaction('files','readwrite');t.objectStore('files').put(rec);t.oncomplete=()=>res(rec);t.onerror=()=>rej(t.error)})}
+async function libDel(id){const db=await libDB();return new Promise(res=>{const t=db.transaction('files','readwrite');t.objectStore('files').delete(id);t.oncomplete=()=>res()})}
+const LIB_SUBS={sound:'Звуки',media:'Картинки и видео'};
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+async function lib(sub='proto'){
+ chrome('lib');if(!isAdmin())return settings();
+ const tabs=`<div class="row">${[['proto','Протоколы'],['sound','Звуки'],['media','Картинки и видео']].map(([k,v])=>`<button class="${sub===k?'':'ghost'}" data-sub="${k}">${v}</button>`).join('')}</div>`;
+ if(sub==='proto'){
+  html(`<h2>Библиотека</h2>${tabs}`+Object.keys(PR).map(p=>`<div class="card"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}. Изменение протоколов появится после подключения советника и одобрения.</p></div>`).join('')+(S.library||[]).map(x=>`<div class="card"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description)}</p><p class="m">Основа: ${PR[x.base].n}. Из студии.</p></div>`).join(''));
+ }else{
+  const files=await libAll(sub);
+  html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
+   <input type="file" id="up" accept="${sub==='sound'?'audio/*':'image/*,video/*'}"></div>
+   <div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Публикуются одобренные протоколы и список файлов. Файлы загружаются на сервер вместе с публикацией.</p><button id="pubL">Опубликовать библиотеку</button><p class="m" id="pubM"></p></div>
+   ${sub==='sound'?`<div class="card"><h3>Звук для протокола</h3><select id="lnkP">${(S.library||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><select id="lnkF">${files.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select><button id="lnkB" class="ghost">Привязать</button></div>`:''}`+
+   (files.length?files.map(f=>`<div class="card"><b>${esc(f.name)}</b><span class="m">${(f.size/1024).toFixed(0)} КБ</span><button class="ghost" data-del="${f.id}">Удалить</button></div>`).join(''):'<p class="m">Файлов пока нет.</p>'));
+  $('#up').onchange=async e=>{const f=e.target.files[0];if(!f)return;await libAdd(sub,f);lib(sub)};
+  $('#pubL').onclick=async()=>{$('#pubM').textContent='Публикую…';try{await publishLibrary();$('#pubM').textContent='Опубликовано.'}catch(e){$('#pubM').textContent='Не удалось: '+e.message}};
+  if($('#lnkB'))$('#lnkB').onclick=()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p)return;p.sound_file=$('#lnkF').value;save();$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await libDel(b.dataset.del);lib(sub)});
+ }
+ document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub))}
+
+async function syncLibrary(){
+ try{const r=await fetch(SHARED_API+'/library');if(!r.ok)return;const j=await r.json();
+  S.pub=Array.isArray(j.protocols)?j.protocols:[];S.pubFiles=Array.isArray(j.files)?j.files:[];save()}catch(e){}}
+async function publishLibrary(){
+ if(!ADMIN_PW)throw new Error('нужен вход администратора');
+ const files=[...(await libAll('sound')),...(await libAll('media'))].map(f=>({id:f.id,name:f.name,type:f.type,kind:f.kind,size:f.size}));
+ const r=await fetch(SHARED_API+'/library',{method:'PUT',headers:{'Content-Type':'application/json','X-Admin-Password':ADMIN_PW},
+  body:JSON.stringify({protocols:(S.library||[]),files})});
+ if(!r.ok)throw new Error('сервер ответил '+r.status);
+ S.pub=(S.library||[]);S.pubFiles=files;save();return r.json()}
+async function uploadShared(rec){
+ const r=await fetch(SHARED_API+'/files/'+rec.id,{method:'PUT',headers:{'Content-Type':rec.type||'application/octet-stream','X-Admin-Password':ADMIN_PW},body:rec.blob});
+ if(!r.ok)throw new Error('сервер ответил '+r.status)}
+function adviseSummary(){
+ const L=S.log.filter(l=>l.type==='session').slice(-10);
+ return {vuln:S.vuln,base:S.base,sessions:L.map(l=>({proto:l.proto,delta:l.post-l.pre,disc:l.disc,lvl:l.lvl,series:(l.hr_series||[]).map(x=>x[1])}))}}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function findCustom(id){return (S.pub||[]).find(x=>x.id===id)||(S.library||[]).find(x=>x.id===id)}
+function metaOf(p){if(PR[p])return {n:PR[p].n,short:BRIEF[p].short,steps:BRIEF[p].steps,base:p};const c=findCustom(p);return c?{n:c.name,short:c.description,steps:c.steps||[],base:c.base}:{n:String(p),short:'',steps:[],base:'shield'}}
+function protoName(id){return metaOf(id).n}
+function protoBase(id){return metaOf(id).base}
+function libProtos(){return [...Object.keys(PR).map(id=>({id,name:PR[id].n,base:id,description:BRIEF[id].short})),...(S.library||[]).map(x=>({id:x.id,name:x.name,base:x.base,description:x.description}))]}
+async function callAdmin(body){
+ const r=await fetch(SHARED_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,password:ADMIN_PW})});
+ if(r.status===403){adminLogout();throw new Error('auth')}
+ if(!r.ok)throw new Error('http '+r.status);return r.json()}
+function renderMsg(m,i){
+ const p=m.proposal;
+ const card=p?`<div class="card"><b>${esc(p.name)}</b> <span class="m">основа: ${PR[p.base].n}, ${p.duration_s} с</span><p>${esc(p.description)}</p>
+  <ol class="steps">${p.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>
+  <p class="m">Звук: ${esc(p.sound.join(', ')||'—')}. Визуально: ${esc(p.visual.join(', ')||'—')}. Остановка при дискомфорте от ${p.stop_if_discomfort}/10.</p>
+  <button data-save="${i}">В библиотеку</button> <button class="ghost" data-fix="${i}">Доработать</button></div>`:'';
+ return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${card}</div>`}
+async function sendMsg(text){
+ text=(text||'').trim();if(!text)return;
+ S.studio=[...(S.studio||[]),{role:'user',content:text}];save();aiScreen();
+ $('#sst').textContent='ИИ думает…';
+ try{const r=await callAdmin({action:'chat',messages:S.studio.slice(-20).map(m=>({role:m.role,content:m.content}))});
+  S.studio=[...S.studio,{role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null}].slice(-40);save();aiScreen();
+ }catch(e){aiScreen();$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
+function aiScreen(){
+ chrome('ai');if(!isAdmin())return settings();
+ const msgs=S.studio||[];
+ html(`<h2>Студия</h2>
+ <div class="card"><p class="m">Опишите протокол, который нужен. ИИ предложит вымышленный сценарий, его можно обсуждать и доработать. Одобренный протокол попадает в библиотеку.</p></div>
+ <div id="chat">${msgs.map((m,i)=>renderMsg(m,i)).join('')||'<p class="m">Сообщений пока нет.</p>'}</div>
+ <div class="card"><textarea id="inp" rows="3" placeholder="Задача или замечание"></textarea>
+  <div class="row"><button id="send">Отправить</button>${SR?'<button id="mic" class="ghost">Голос</button>':''}<label class="filebtn ghost">Файл<input type="file" id="att" hidden></label></div>
+  <p class="m" id="sst"></p></div>
+ <div class="card"><h3>Пульс и расписание</h3><div class="row"><button id="adv" class="ghost">Решение по пульсу</button><button id="sch" class="ghost">Составить расписание</button></div><p class="m" id="aiOut"></p><div id="aiRes"></div></div>`);
+ const c=$('#chat');if(c&&c.lastElementChild)c.lastElementChild.scrollIntoView({block:'end'});
+ $('#send').onclick=()=>{const v=$('#inp').value;sendMsg(v)};
+ if($('#mic'))$('#mic').onclick=()=>{const rec=new SR();rec.lang='ru-RU';rec.interimResults=false;
+  rec.onresult=e=>{$('#inp').value+=e.results[0][0].transcript};rec.onerror=()=>{$('#sst').textContent='Голос не распознан.'};rec.start();$('#sst').textContent='Говорите…'};
+ $('#att').onchange=async e=>{const f=e.target.files[0];if(!f)return;
+  if(/text\/|json|\.md$|\.txt$/.test(f.type+' '+f.name)){const t=(await f.text()).slice(0,4000);sendMsg('Вложение «'+f.name+'»:\n'+t)}
+  else{await libAdd('media',f);$('#sst').textContent='Файл сохранён в библиотеку: '+f.name}};
+ document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{const p=S.studio[+b.dataset.save].proposal;
+  S.library=[...(S.library||[]),{id:'c_'+Date.now().toString(36),...p,source:'ai'}];save();$('#sst').textContent='«'+p.name+'» сохранён в библиотеку.'});
+ document.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{$('#inp').value='Доработай протокол «'+S.studio[+b.dataset.fix].proposal.name+'»: ';$('#inp').focus()});
+ $('#adv').onclick=async()=>{$('#aiOut').textContent='Думаю…';
+  try{const a=await callAdmin({action:'advise',summary:adviseSummary()});$('#aiOut').textContent='';
+   $('#aiRes').innerHTML=`<div class="card hero"><span class="m">${a.significant_change?'Изменение значимое':'Изменение незначимое'}</span><p>${esc(a.summary)}</p><h3>Следующий: ${esc(protoName(a.next_protocol))}</h3><p class="m">${esc(a.reason)}</p><button id="apply">Применить к уроку ${curDay()}</button></div>`;
+   $('#apply').onclick=()=>{S.aiNext={lesson:curDay(),proto:a.next_protocol,reason:a.reason};save();$('#aiOut').textContent='Применено.'}}
+  catch(e){$('#aiOut').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером.'}};
+ $('#sch').onclick=async()=>{$('#aiOut').textContent='Составляю расписание…';
+  try{const r=await callAdmin({action:'schedule',library:libProtos().map(x=>({id:x.id,name:x.name,base:x.base,description:x.description})),summary:adviseSummary(),days:14});
+   S.schedule=r.schedule;save();$('#aiOut').textContent='Расписание составлено. Его можно изменить в Настройках → Расписание.'}
+  catch(e){$('#aiOut').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Не удалось составить расписание.'}}}
+
+function scheduleCard(){
+ const L=libProtos();
+ const rows=(S.schedule||[]).map((x,i)=>`<div class="row"><span>Урок ${x.lesson}</span><select data-si="${i}">${L.map(p=>`<option value="${esc(p.id)}" ${p.id===x.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div><p class="m">${esc(x.note||'')}</p>`).join('');
+ return `<div class="card"><h2>Расписание</h2>${rows||'<p class="m">Расписание не задано: уроки подбираются по вашей реакции.</p>'}
+  ${S.schedule&&S.schedule.length?'<button id="sclr" class="ghost">Вернуть автоматический выбор</button>':''}</div>`}
