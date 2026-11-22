@@ -256,7 +256,7 @@ function stopLayers(){
 function finish(c){const afterForm=cb=>{if(HRM.connected()){const post=med((c.hrs||[]).slice(-10).map(x=>x[1]))||c.pre;discForm(post,cb)}else pulseForm('Как вы себя чувствуете? Пульс после',true,cb)};
 afterForm((post,disc)=>{
  const good=disc<=4&&c.eases<=1;S.lv[c.p]=clamp(c.lvl+(good?.05:-.08),.1,1);
- S.log.push({type:'session',v:APP_VER,t:new Date().toISOString(),day:curDay(),lesson:curDay(),planned:(curDay()-(S.courseStart||0))<=14?S.plan[curDay()-(S.courseStart||0)]:null,proto:c.p,custom:c.custom||null,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
+ S.log.push({type:'session',v:APP_VER,t:new Date().toISOString(),day:curDay(),lesson:curDay(),planned:(S.plan&&(curDay()-(S.courseStart||0))<=14)?S.plan[curDay()-(S.courseStart||0)]:null,proto:c.p,custom:c.custom||null,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
  save();summary(S.log.at(-1))})}
 
 /* ===== 6. Экраны, графики ===== */
