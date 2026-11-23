@@ -94,3 +94,35 @@ details summary{color:var(--link)}
 .switch input:checked + span::before{transform:translateX(20px);background:var(--on)}
 
 .vis.glow{background:radial-gradient(ellipse at center,transparent 40%,rgba(169,200,236,.55) 100%);opacity:0}
+
+.pcard{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.ptext{flex:1;min-width:0}
+.pbtns{display:flex;flex-direction:column;gap:8px;flex:0 0 auto}
+.icon{min-width:44px;min-height:44px;padding:0;border-radius:12px;font-size:1.1rem}
+.ed-wrap{display:flex;flex-direction:column;gap:12px}
+.ed-chat.collapsed .ed-body{display:none}
+.ed-body{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+#edMsgs{max-height:40vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
+
+/* v11.1: поля ввода в цветах темы */
+input:not([type=checkbox]):not([type=range]):not([type=file]):not(.switch input),
+textarea,
+select{
+  font:inherit;width:100%;min-height:46px;padding:10px 14px;
+  border-radius:12px;border:1px solid var(--ln);
+  background:var(--sf);color:var(--tx);
+  transition:border-color .2s,box-shadow .2s;
+  appearance:auto;
+}
+textarea{min-height:76px;resize:vertical;line-height:1.45}
+select{padding-right:34px}
+input::placeholder,textarea::placeholder{color:var(--mu);opacity:.8}
+input:not([type=checkbox]):not([type=range]):not([type=file]):focus,
+textarea:focus,
+select:focus{
+  outline:none;border-color:var(--ac);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--ac) 28%,transparent);
+}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--ac);vertical-align:middle;margin-right:6px}
+label{color:var(--tx)}
+label.chk{display:flex;align-items:center;gap:6px;padding:4px 0}

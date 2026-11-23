@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='10.0';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.1';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -541,7 +541,11 @@ async function lib(sub='proto'){
  chrome('lib');if(!isAdmin())return settings();
  const tabs=`<div class="row">${[['proto','Протоколы'],['sound','Звуки'],['media','Картинки и видео']].map(([k,v])=>`<button class="${sub===k?'':'ghost'}" data-sub="${k}">${v}</button>`).join('')}</div>`;
  if(sub==='proto'){
-  html(`<h2>Библиотека</h2>${tabs}`+Object.keys(PR).map(p=>`<div class="card"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}. Изменение протоколов появится после подключения советника и одобрения.</p></div>`).join('')+(S.library||[]).map(x=>`<div class="card"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description)}</p><p class="m">Основа: ${baseName(x.base)}. Из студии.</p><button class="ghost" data-libprev="${x.id}">Предпросмотр</button> <button class="ghost" data-libtest="${x.id}">Тест</button> <button class="ghost" data-libedit="${x.id}">Редактировать</button> <button class="ghost" data-libdel="${x.id}">Удалить</button></div>`).join(''));
+  const bcards=Object.keys(PR).map(p=>`<div class="card pcard"><div class="ptext"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}</p></div>
+    <div class="pbtns"><button class="icon" data-play="${p}" title="Тест (не учитывается в статистике)">▶</button><button class="icon" data-pen="${p}" title="Редактировать с ИИ">✎</button></div></div>`).join('');
+  const ccards=(S.library||[]).map(x=>`<div class="card pcard"><div class="ptext"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description||'')}</p><p class="m">Основа: ${baseName(x.base)}${x.source==='base'?' · своя версия':' · из студии'}</p></div>
+    <div class="pbtns"><button class="icon" data-play="${x.id}" title="Тест (не учитывается в статистике)">▶</button><button class="icon" data-pen="${x.id}" title="Редактировать с ИИ">✎</button></div></div>`).join('');
+  html(`<h2>Библиотека</h2>${tabs}${bcards}${ccards}`);
  }else{
   const files=await libAll(sub);
   html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
@@ -558,10 +562,8 @@ async function lib(sub='proto'){
   document.querySelectorAll('[data-trim]').forEach(b=>b.onclick=()=>{const f=files.find(x=>x.id===b.dataset.trim);if(f&&(f.type||'').startsWith('audio'))trimAudio(f.id);else if(f)cropImage(f.id)});
  }
  document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub));
- document.querySelectorAll('[data-libtest]').forEach(b=>b.onclick=()=>testSession(b.dataset.libtest));
- document.querySelectorAll('[data-libprev]').forEach(b=>b.onclick=()=>previewProto(b.dataset.libprev));
- document.querySelectorAll('[data-libedit]').forEach(b=>b.onclick=()=>editProto(b.dataset.libedit));
- document.querySelectorAll('[data-libdel]').forEach(b=>b.onclick=()=>{if(!confirm('Удалить протокол из библиотеки?'))return;S.library=(S.library||[]).filter(x=>x.id!==b.dataset.libdel);save();lib('proto')})}
+ document.querySelectorAll('[data-play]').forEach(b=>b.onclick=()=>testSession(b.dataset.play));
+ document.querySelectorAll('[data-pen]').forEach(b=>b.onclick=()=>{const id=b.dataset.pen;protoEditor(PR[id]?draftFromBase(id):id)})}
 
 async function syncLibrary(){
  try{const r=await fetch(SHARED_API+'/library');if(!r.ok)return;const j=await r.json();
@@ -590,6 +592,48 @@ function previewProto(id){
   <div class="row"><button id="pvPlay">Проиграть 12 секунд</button><button id="pvBack" class="ghost">Назад</button></div>`);
  $('#pvBack').onclick=()=>chrome('lib')||lib('proto');
  $('#pvPlay').onclick=()=>{if(!findCustom(id))return;A.init();startLayers(findCustom(id));setTimeout(()=>stopLayers(),12000)}}
+let ED_COLL=false;
+function draftFromBase(p){const m=metaOf(p);const id='c_'+Date.now().toString(36);S.library=S.library||[];
+ S.library.push({id,name:m.n+' (своя версия)',base:p,description:m.short,steps:m.steps||[],sound:[],visual:[],duration_s:180,stop_if_discomfort:6,sound_file:null,source:'base'});
+ save();return id}
+function applyDraft(x,p){const keep={id:x.id,source:x.source,sound_file:x.sound_file};Object.assign(x,p,keep);save()}
+function protoEditor(id){
+ const x=(S.library||[]).find(q=>q.id===id);if(!x){lib('proto');return}
+ S.edChat=S.edChat||{};const msgs=S.edChat[id]||[];
+ html(`<h2>Редактирование</h2>
+  <div class="ed-wrap">
+   <div class="card ed-preview">
+    <div class="row"><button id="edPlay" class="icon" title="Тест (не учитывается в статистике)">▶</button><button id="edLayers" class="ghost">Слушать слои</button><button id="edBack" class="ghost">← Библиотека</button></div>
+    <h3>${esc(x.name)}</h3><p class="m">${esc(x.description||'')}</p>
+    <ol class="steps">${(x.steps||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ol>
+    <p class="m">Основа: ${baseName(x.base)} · ${x.duration_s} с · остановка при дискомфорте ${x.stop_if_discomfort}/10</p>
+    <p class="m">Звук: ${esc((x.sound||[]).join(', ')||'—')} · Визуал: ${esc((x.visual||[]).join(', ')||'—')}</p>
+    <div class="row"><button id="edDel" class="ghost">Удалить протокол</button></div>
+   </div>
+   <div class="card ed-chat ${ED_COLL?'collapsed':''}">
+    <div class="row"><button id="edToggle" class="ghost">${ED_COLL?'▸ Чат с ИИ':'▾ Чат с ИИ'}</button><span class="m" id="edSt"></span></div>
+    <div class="ed-body">
+     <div id="edMsgs">${msgs.map(m=>`<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p></div>`).join('')||'<p class="m">Опишите, что изменить: «добавь шелест», «сделай короче», «новые шаги».</p>'}</div>
+     <textarea id="edInp" rows="2" placeholder="Что изменить"></textarea>
+     <div class="row"><button id="edSend">Отправить</button></div>
+    </div>
+   </div>
+  </div>`);
+ $('#edBack').onclick=()=>lib('proto');
+ $('#edPlay').onclick=()=>testSession(id);
+ $('#edLayers').onclick=()=>{A.init();startLayers(x);setTimeout(()=>stopLayers(),12000)};
+ $('#edDel').onclick=()=>{if(!confirm('Удалить протокол из библиотеки?'))return;S.library=(S.library||[]).filter(q=>q.id!==id);save();lib('proto')};
+ $('#edToggle').onclick=()=>{ED_COLL=!ED_COLL;protoEditor(id)};
+ $('#edSend').onclick=async()=>{const t=$('#edInp').value.trim();if(!t)return;
+  const ctx={role:'user',content:'Текущий протокол (JSON): '+JSON.stringify({name:x.name,base:x.base,description:x.description,steps:x.steps,sound:x.sound,visual:x.visual,duration_s:x.duration_s,stop_if_discomfort:x.stop_if_discomfort})+'. Внеси изменения по просьбе администратора и верни блок ```json с протоколом целиком.'};
+  const list=S.edChat[id]||[];list.push({role:'user',content:t});S.edChat[id]=list;save();
+  $('#edSt').textContent='ИИ думает…';
+  try{const r=await callAdmin({action:'chat',mode:'create',messages:[ctx,...list.slice(-18).map(m=>({role:m.role,content:m.content}))]});
+   list.push({role:'assistant',content:r.reply||'(пусто)'});
+   if(r.proposal){applyDraft(x,r.proposal);list.push({role:'assistant',content:'Черновик обновлён и сохранён.'})}
+   S.edChat[id]=list.slice(-40);save();protoEditor(id);
+  }catch(e){$('#edSt').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером'}};
+}
 function editProto(id){
  const x=(S.library||[]).find(q=>q.id===id);if(!x)return;
  const sndOpts=['гул','тиканье','тишина','шелест','дыхание'],visOpts=['мягкое свечение','тишина','спокойный фон'];
