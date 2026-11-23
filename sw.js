@@ -1,5 +1,5 @@
 /* Service worker: офлайн-кэш оболочки (cache-first). Меняйте VER при обновлении файлов. */
-const VER='snr-v100',FILES=['./','index.html','style.css','app.js','manifest.json','icon.svg','icon-192.png','icon-512.png'];
+const VER='snr-v10',FILES=['./','index.html','style.css','app.js','manifest.json','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(VER).then(c=>c.addAll(FILES)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==VER).map(x=>caches.delete(x)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;

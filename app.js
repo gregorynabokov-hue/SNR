@@ -2,16 +2,20 @@
 /* СНР OS v1 — Vanilla JS. Разделы: 1 хранилище · 2 аудио · 3 пульс (ввод/rPPG) · 4 сканер · 5 сессии · 6 экраны · 7 CSV */
 
 /* ===== 1. Хранилище и утилиты ===== */
-const isAdmin=()=>!!(S.admin&&!S.preview);
+let ADMIN_PW='';
+const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='8.2';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
+const APP_VER='10.0';const BASES=['shield','booster','peak','reset','custom'];
+const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
 // Миграция: старый скан имел 4 оси (вакуум — индекс 2). Убираем её из сохранённых результатов.
 if(S.vuln&&S.vuln.length===4)S.vuln=[S.vuln[0],S.vuln[1],S.vuln[3]];
 (S.scans||[]).forEach(x=>{if(x.vuln&&x.vuln.length===4)x.vuln=[x.vuln[0],x.vuln[1],x.vuln[3]]});
 const vib=n=>S.set.vib&&navigator.vibrate?.(n);
-const chrome=n=>{document.body.classList.remove('run');document.querySelectorAll('#tabs button').forEach(b=>{const on=b.dataset.t===n;b.classList.toggle('on',on);b.setAttribute('aria-current',on?'page':'false')});applyAdmin()};
+let navSilent=false;
+const TAB_ORDER=['home','stats','set','lib','ai'];
+const chrome=n=>{document.body.classList.remove('run');document.querySelectorAll('#tabs button').forEach(b=>{const on=b.dataset.t===n;b.classList.toggle('on',on);b.setAttribute('aria-current',on?'page':'false')});applyAdmin();if(!navSilent&&TAB_ORDER.includes(n)&&!(history.state&&history.state.k===n))history.pushState({k:n},'')};
 const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $=s=>document.querySelector(s), app=$('#app'), html=h=>{app.innerHTML=h;app.classList.remove('fade');void app.offsetWidth;app.classList.add('fade')};
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)), sleep=ms=>new Promise(r=>setTimeout(r,ms)), rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
@@ -95,7 +99,24 @@ const SETUP=[
  ()=>{},
  len=>{const t0=performance.now();let hi=0;(function tk(){if(!A.alive)return;A.tock(hi^=1?.22:.14);setTimeout(tk,1000*60/(60+120*Math.min(1,(performance.now()-t0)/1000/len)))})()}];
 
+async function runVisualProbe(len){
+ A.init();
+ html(`<div class="vis glow" id="glow"></div><h2>${PB[1].n}</h2><p class="m" id="vst">Свечение по краям станет ярче и чаще. Нажмите «Здесь неприятно», как только станет некомфортно.</p><div class="bar"><i id="pg"></i></div><button id="vmark">Здесь неприятно</button><button id="stop" class="ghost">Прервать</button>`);
+ const g=$('#glow'),pg=$('#pg');let stop=false,mark=null,lvl=0,fq=.5,elapsed=0;
+ $('#stop').onclick=()=>stop=true;
+ $('#vmark').onclick=()=>{if(mark!==null)return;mark={t:Math.round(elapsed/1000),level:+lvl.toFixed(2),freq:+fq.toFixed(2)};
+  $('#vst').textContent='Отмечено. Можно продолжить или прервать.';$('#vmark').disabled=true};
+ const t0=performance.now();
+ while(!stop&&elapsed<len*1000){
+  elapsed=performance.now()-t0;const k=elapsed/(len*1000);
+  lvl=Math.min(.5,.08+.42*k);fq=Math.min(1.4,.5+.9*k);
+  const ph=Math.sin(2*Math.PI*fq*elapsed/1000)*.5+.5;
+  if(g)g.style.opacity=(lvl*ph).toFixed(3);
+  if(pg)pg.style.width=(k*100)+'%';
+  await sleep(33)}
+ A.stop();window.__visThr=mark;return !stop}
 async function runProbe(i,len){ // i=-1 — базовый покой
+ if(i===1)return runVisualProbe(len);
  A.init();html(`<div class="vis ${i===1?'v1':''}"></div><h2>${i<0?'Базовый покой':PB[i].n}</h2><div id="cd" class="cd"></div><div class="bar"><i id="pg"></i></div><button id="stop" class="ghost">Прервать</button>`);
  if(i>=0)SETUP[i](len);let stop=false;$('#stop').onclick=()=>stop=true;const t0=Date.now();
  const pg=$('#pg');pg.style.transition=`width ${len}s linear`;requestAnimationFrame(()=>pg.style.width='100%');
@@ -114,11 +135,12 @@ async function scan(){if(S.vuln&&!confirm('Новый скан заново за
  let stop=sensorSample();
  if(!await runProbe(-1,PROBE))return home();
  const baseRaw=stop(),base=await new Promise(r=>pulseForm('Пульс в покое',false,r,med(baseRaw)));
- const hr=[],disc=[],raw=[];
+ const hr=[],disc=[],raw=[];let visThr=null;
  for(let i=0;i<PB.length;i++){
   html(`<h2>Проба ${i+1} из ${PB.length}: ${PB[i].n}</h2><p>${PB[i].d}</p><button id="go">Запустить (30 с)</button>`);await click('#go');
   stop=sensorSample();
   if(!await runProbe(i,PROBE))return home();
+  if(i===1)visThr=window.__visThr||null;
   const sm=stop();
   await new Promise(r=>pulseForm(PB[i].n+': пульс и дискомфорт',true,(h,d)=>{hr.push(h);disc.push(d);r()},med(sm)));
   raw.push(sm);
@@ -130,7 +152,7 @@ async function scan(){if(S.vuln&&!confirm('Новый скан заново за
  S.base=base;S.hr=hr;S.disc=disc;S.vuln=hr.map((h,i)=>clamp(Math.round(Math.max(0,(h-base)/base*100)*3.5+disc[i]*4.5),0,100));
  const o=S.vuln.map((v,i)=>[v,i]).sort((a,b)=>b[0]-a[0]),p1=AXP[o[0][1]],p2=AXP[o.find(x=>AXP[x[1]]!==p1)[1]];
  S.courseStart=lessonCount();if(S.plan)(S.courses=S.courses||[]).push({endedAt:new Date().toISOString(),plan:S.plan,done:S.done,vuln:S.vuln});S.plan={};for(let d=1;d<=14;d++)S.plan[d]=d%7===0?'reset':d%2?p1:p2;S.done={};
- S.scans.push({v:APP_VER,t:new Date().toISOString(),base,rec,hr,disc,vuln:S.vuln,raw:raw.map(a=>a.map(Math.round))});
+ S.scans.push({v:APP_VER,t:new Date().toISOString(),base,rec,hr,disc,vuln:S.vuln,visThr,raw:raw.map(a=>a.map(Math.round))});
  S.log=S.log.filter(l=>l.type!=='scan');S.log.push(...hr.map((h,i)=>({type:'scan',t:new Date().toISOString(),proto:AX[i],pre:base,post:h,disc:disc[i],lvl:S.vuln[i]})));
  save();home('Профиль построен. Начинаем с уроков из скана, дальше курс подстроится под вашу реакцию.')}
 
@@ -171,7 +193,8 @@ const BRIEF={
  peak:{short:'Арифметика на время под шум аудитории и тиканье часов.',steps:['Выбирайте ответ до того, как полоска времени закончится.','Шум и тиканье — это тренировка концентрации. Не отвлекайтесь на них, возвращайтесь к примеру.','Ошибка не отменяет сессию. Продолжайте.','Если становится тревожно, нажмите «Мне некомфортно».']},
  reset:{short:'Быстрое успокоение за несколько минут. Только слушайте и дышите.',steps:['Наденьте наушники: звук создаёт ритм, который работает только в наушниках.','Следите за пульсом на экране: он будет плавно замедляться.','Дышите в ритме круга. Задач нет.','Если хотите остановиться раньше, нажмите «Завершить».']}
 };
-function session(p){brief(p)}
+function session(p,test){brief(p,test)}
+function testSession(p){session(p,true)}
 function profileSummary(p){const L=S.log.filter(l=>l.type==='session').slice(-5);
  return {protocol:p,day:Math.min(curDay(),10000),vuln:S.vuln,recent:L.map(l=>({proto:l.proto,delta:l.post-l.pre,disc:l.disc}))}}
 function cleanScenario(j){if(!j||typeof j.title!=='string'||!Array.isArray(j.intro))return null;
@@ -192,13 +215,14 @@ function localIntro(p){const v=S.vuln||[0,0,0,0],top=AX[v.indexOf(Math.max(...v)
  return {title:metaOf(p).n,intro:[`Сегодня: ${metaOf(p).n.toLowerCase()}. По вашему скану сильнее всего нагружен спектр «${top}».`,
   last&&last.post<last.pre?'В прошлый раз пульс снизился. Повторите то, что помогло.':'Не спешите. Дыхание важнее результата.',
   'Сядьте удобно и начинайте, когда будете готовы.']}}
-function brief(p){chrome('home');const b=metaOf(p);
- html(`${ICON[metaOf(p).base]||''}<h2>${metaOf(p).n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
+SET.custom=()=>{};
+function brief(p,test){chrome('home');const b=metaOf(p);
+ html(`${test?'<p class="toast">Тестовый запуск: не учитывается в статистике, уроках и расписании.</p>':''}${ICON[metaOf(p).base]||''}<h2>${metaOf(p).n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
  <div class="card" id="ai"><span class="m">Вступление к сессии</span><p id="aiT">Готовим вступление…</p></div>
  <div class="card"><h2>Как проходить</h2><ol class="steps">${b.steps.map(x=>`<li>${x}</li>`).join('')}</ol></div>
  <div class="card"><p class="m">Перед стартом измерим пульс: датчиком, камерой или вручную. После сессии спросим про самочувствие.</p></div>
  <button id="go">Начать</button><button id="back" class="ghost">Назад</button>`);
- $('#back').onclick=()=>home();$('#go').onclick=()=>sessionRun(p);
+ $('#back').onclick=()=>home();$('#go').onclick=()=>sessionRun(p,test);
  fetchScenario(metaOf(p).base).then(sc0=>{const sc=sc0||localIntro(p);const box=$('#ai');if(!box)return;box.innerHTML='';
   const lab=document.createElement('span');lab.className='m';lab.textContent='Вступление к сессии';box.append(lab);
   
@@ -212,11 +236,12 @@ function withPre(p,cb){
 function discForm(post,cb){
  html(`<h2>Как вы себя чувствуете?</h2><p class="m">Пульс после сессии записан с датчика: ${post} уд/мин.</p><label>Дискомфорт: <b id="dv">0</b>/10</label><input id="ds" type="range" min="0" max="10" value="0"><button id="ok">Дальше</button>`);
  $('#ds').oninput=e=>$('#dv').textContent=e.target.value;$('#ok').onclick=()=>cb(post,+$('#ds').value)}
-function sessionRun(p){document.body.classList.add('run');const base=metaOf(p).base,cust=PR[p]?null:findCustom(p);withPre(p,pre=>{A.init();LEN=S.set.len;
-  const c={p:base,custom:cust?cust.id:null,pre,alive:true,lvl:S.lv[base]??.2,eases:0,auto:0,res:{}};
-  html(`<h2>${metaOf(p).n}</h2><div class="stage ${PR[base].orb?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
+function sessionRun(p,test){document.body.classList.add('run');const base=metaOf(p).base,cust=PR[p]?null:findCustom(p);withPre(p,pre=>{A.init();LEN=S.set.len;const orbOn=PR[base]?PR[base].orb:!!(cust&&(cust.sound||[]).includes('дыхание'));
+  const c={p:base,pid:p,test:!!test,custom:cust?cust.id:null,pre,alive:true,lvl:S.lv[base]??.2,eases:0,auto:0,res:{}};
+  html(`<h2>${metaOf(p).n}</h2><div class="stage ${orbOn?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
   <div class="session-foot"><p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div></div>`);
   const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
+  window.__abort=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();window.__abort=null;home('Урок прерван, запись не сохранена.')};
   const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();finish(c)};
   $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
   c.hrs=[];c.gaps=0;
@@ -229,7 +254,7 @@ function sessionRun(p){document.body.classList.add('run');const base=metaOf(p).b
   if(HRM.connected()){hrl.textContent='Пульс: датчик подключён';start()}
   else if(S.cam)R.start().then(()=>{hrl.textContent='Пульс: сбор данных…';start()}).catch(()=>{hrl.textContent='Камера недоступна: пульс не записывается'});
   else hrl.textContent='Запись пульса выключена: подключите датчик или включите камеру в настройках';
-  setTimeout(()=>{if(c.alive){SET[base](c);if(cust)startLayers(cust)}},50); // orb: старт с scale(.45) из CSS
+  setTimeout(()=>{if(c.alive){(SET[base]||SET.custom)(c);if(cust)startLayers(cust)}},50); // orb: старт с scale(.45) из CSS
   const pg=$('#pg');pg.style.transition=`width ${LEN}s linear`;requestAnimationFrame(()=>pg.style.width='100%');
   iv=setInterval(()=>{if(Date.now()-t0>=LEN*1000)end()},500)})}
 let CUST_AUDIO=null;
@@ -253,8 +278,16 @@ async function playLinkedFile(id){
 function stopLayers(){
  document.querySelectorAll('.custom-glow').forEach(e=>e.remove());
  if(CUST_AUDIO){CUST_AUDIO.pause();CUST_AUDIO=null}}
+function finishTest(c,post,disc){
+ S.tests=S.tests||[];S.tests.push({t:new Date().toISOString(),pid:c.pid,pre:c.pre,post,disc,v:APP_VER});save();
+ document.body.classList.remove('run');
+ html(`<h2>Тест завершён</h2><div class="card"><p>Протокол: ${esc(metaOf(c.pid).n)}</p><p class="m">Пульс: ${c.pre} → ${post} уд/мин, дискомфорт ${disc}/10.</p>
+  <p class="m">Тестовый запуск не учитывается в статистике, уроках и расписании.</p></div>
+  <div class="row"><button id="tAgain">Ещё раз</button><button id="tLib" class="ghost">В библиотеку</button></div>`);
+ $('#tAgain').onclick=()=>testSession(c.pid);$('#tLib').onclick=()=>lib('proto')}
 function finish(c){const afterForm=cb=>{if(HRM.connected()){const post=med((c.hrs||[]).slice(-10).map(x=>x[1]))||c.pre;discForm(post,cb)}else pulseForm('Как вы себя чувствуете? Пульс после',true,cb)};
 afterForm((post,disc)=>{
+ if(c.test){finishTest(c,post,disc);return}
  const good=disc<=4&&c.eases<=1;S.lv[c.p]=clamp(c.lvl+(good?.05:-.08),.1,1);
  S.log.push({type:'session',v:APP_VER,t:new Date().toISOString(),day:curDay(),lesson:curDay(),planned:(S.plan&&(curDay()-(S.courseStart||0))<=14)?S.plan[curDay()-(S.courseStart||0)]:null,proto:c.p,custom:c.custom||null,pre:c.pre,post,disc,lvl:+c.lvl.toFixed(2),eases:c.eases+c.auto,hr_series:c.hrs||[],hr_gaps:c.gaps||0,n:c.res.n??'',miss:c.res.miss??'',rt:c.res.rt??'',ok:c.res.ok??''});
  save();summary(S.log.at(-1))})}
@@ -271,7 +304,7 @@ function nextLesson(){
  if(sc)return {n,proto:sc.id,why:'Расписание: '+protoName(sc.id)+(sc.note?' — '+sc.note:'')};
  if(!S.vuln)return {n,proto:null,why:'Сначала пройдите сенсорный лабиринт.'};
  const rank=S.vuln.map((_,i)=>i).sort((a,b)=>S.vuln[b]-S.vuln[a]);
- if(k<=4)return {n,proto:S.plan[k],why:`Начальный урок из скана: главный спектр «${AX[rank[0]].toLowerCase()}» (${S.vuln[rank[0]]}%).`};
+ if(k<=4&&S.plan)return {n,proto:S.plan[k],why:`Начальный урок из скана: главный спектр «${AX[rank[0]].toLowerCase()}» (${S.vuln[rank[0]]}%).`};
  const last=S.log.filter(l=>l.type==='session').at(-1),d=last.post-last.pre;
  if(last.disc>=6||d>=5)return {n,proto:last.proto==='reset'?'shield':'reset',why:'В прошлый раз пульс вырос или было неприятно, поэтому урок спокойнее.'};
  const harder=last.disc<=3&&d<=0;
@@ -300,8 +333,8 @@ function home(msg){
  const has=!!S.vuln,nx=nextLesson(),log=S.log.filter(l=>l.type==='session');
  const scanCard=`<div class="card hero"><span class="m">Начните здесь</span><h2>Сенсорный лабиринт</h2><p>Около 6 минут. Три короткие пробы покажут, какие раздражители вам трудно переносить. По итогам начнётся курс.</p><button id="scan">Запустить сенсорный лабиринт</button></div>`;
  const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${metaOf(nx.proto).n}</h2><p>${metaOf(nx.proto).short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${S.set.len/60} мин)</button></div>`:'';
- const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map((l,i,arr)=>`<div class="day done"><span class="dn">${l.lesson??(log.length-arr.length+i+1)}</span>${SHORT[l.proto]}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
- html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${S.admin?`<div class="adminbar"><label class="switch"><input type="checkbox" id="pvTop" ${S.preview?'checked':''}><span></span></label><span>${S.preview?'Предпросмотр: вы видите приложение как пользователь':'Режим администратора'}</span></div>`:''}${msg?`<p class="toast">${msg}</p>`:''}
+ const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map((l,i,arr)=>`<div class="day done"><span class="dn">${l.lesson??(log.length-arr.length+i+1)}</span>${SHORT[l.proto]||metaOf(l.custom||l.proto).n}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
+ html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${(S.admin&&ADMIN_PW)?`<div class="adminbar"><label class="switch"><input type="checkbox" id="pvTop" ${S.preview?'checked':''}><span></span></label><span>${S.preview?'Предпросмотр: вы видите приложение как пользователь':'Режим администратора'}</span></div>`:''}${msg?`<p class="toast">${msg}</p>`:''}
  ${!has?scanCard:lessonCard}
  ${has?hero():''}
  ${has?path:''}
@@ -374,7 +407,7 @@ const ADV=['Слух перегружается первым: начинайте
 const kv=(k,v)=>`<div><span class="m">${k}</span><b>${v}</b></div>`;
 function hero(){const i=S.vuln.indexOf(Math.max(...S.vuln));return `<div class="card hero"><span class="m">Ваш главный спектр</span><h2>${AX[i]}: ${S.vuln[i]}%</h2><p>${ADV[i]}</p><div class="row kv">${kv('Серия',streak()+' дн.')}${kv('Уроков',lessonCount())}${kv('Покой',S.base+' уд/мин')}</div></div>`}
 function summary(l){chrome('home');const d=l.post-l.pre,t=d<=-3?'Пульс заметно снизился: нервная система перешла в более спокойный режим.':d>=3?'Пульс вырос. На сложных протоколах это бывает. В следующий раз начните со «Щита» или «Сброса».':'Пульс почти не изменился. Эффект накапливается за несколько сессий.';
- html(`<div class="card hero"><span class="m">${PR[l.proto].n}</span><div class="big">${d>0?'+':''}${d}</div><p class="m">уд/мин (${l.pre} → ${l.post})</p><p>${t}</p><div class="row kv">${kv('Дискомфорт',l.disc+'/10')}${l.hr_series?.length?kv('Средний в сессии',Math.round(mean(l.hr_series.map(x=>x[1])))+' уд/мин'):''}${kv('Порог',Math.round(l.lvl*100)+'%')}${kv('Серия',streak()+' дн.')}</div></div><button id="ok">Готово</button>`);
+ html(`<div class="card hero"><span class="m">${metaOf(l.custom||l.proto).n}</span><div class="big">${d>0?'+':''}${d}</div><p class="m">уд/мин (${l.pre} → ${l.post})</p><p>${t}</p><div class="row kv">${kv('Дискомфорт',l.disc+'/10')}${l.hr_series?.length?kv('Средний в сессии',Math.round(mean(l.hr_series.map(x=>x[1])))+' уд/мин'):''}${kv('Порог',Math.round(l.lvl*100)+'%')}${kv('Серия',streak()+' дн.')}</div></div><button id="ok">Готово</button>`);
  $('#ok').onclick=()=>home(l.lesson?`Урок ${l.lesson} засчитан.`:'')}
 function settings(){chrome('set');html(`<h2>Настройки</h2><div class="card"><label>Громкость: <b id="vv">${Math.round(S.set.vol*100)}</b>%</label><input id="vol" type="range" min="10" max="100" value="${S.set.vol*100}">
  <label>Длительность сессии</label><div class="row" id="len">${[60,180,300].map(n=>`<button class="${S.set.len===n?'':'ghost'}" data-n="${n}">${n/60} мин</button>`).join('')}</div>
@@ -406,7 +439,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
  <input type="file" id="bkf" accept="application/json" hidden></div>
  ${scheduleCard()}
- <div class="card"><h2>Администратор</h2>${S.admin?'<p class="m">Вход выполнен.</p><label class="switch"><input type="checkbox" id="pv" '+(S.preview?'checked':'')+'><span></span></label> Предпросмотр: приложение как у пользователя<div class="row"><button id="chk" class="ghost">Проверить сервер</button><button id="alo" class="ghost">Выйти из режима администратора</button></div><p class="m" id="chkm"></p>':'<label>Пароль администратора</label><input id="apw" type="password" inputmode="numeric" autocomplete="off"><button id="ali">Войти</button><p class="m" id="alm"></p>'}</div>
+ <div class="card"><h2>Администратор</h2>${(S.admin&&ADMIN_PW)?'<p class="m">Вход выполнен.</p><label class="switch"><input type="checkbox" id="pv" '+(S.preview?'checked':'')+'><span></span></label> Предпросмотр: приложение как у пользователя<div class="row"><button id="chk" class="ghost">Проверить сервер</button><button id="alo" class="ghost">Выйти из режима администратора</button></div><p class="m" id="chkm"></p>':'<label>Пароль администратора</label><input id="apw" type="password" inputmode="numeric" autocomplete="off"><button id="ali">Войти</button><p class="m" id="alm"></p>'}</div>
  <div class="card"><h2>Тема</h2><div class="row"><button id="th1" class="${S.set.theme==='light'?'ghost':''}">Тёмная</button><button id="th2" class="${S.set.theme==='light'?'':'ghost'}">Светлая</button></div></div>
  <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="подключён автоматически"><p class="m">Сервер подключён автоматически и общий для всех. Поле нужно, только если хотите использовать свой сервер. Ключ API хранится на сервере, не в приложении.</p></div>
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
@@ -453,6 +486,25 @@ async function importData(e){const f=e.target.files[0];if(!f)return;
   localStorage.setItem(KEY,JSON.stringify(d));location.reload()}
  catch(err){alert('Не удалось восстановить: '+err.message)}}
 window.addEventListener('beforeunload',e=>{if(document.body.classList.contains('run')){e.preventDefault();e.returnValue=''}});
+let swX=0,swY=0,swT=0;
+document.addEventListener('touchstart',e=>{const t=e.touches[0];swX=t.clientX;swY=t.clientY;swT=Date.now()},{passive:true});
+document.addEventListener('touchend',e=>{
+ if(document.body.classList.contains('run'))return;
+ if(e.target.closest('input,textarea,select,canvas,.switch,.ai-wrap .side'))return;
+ const t=e.changedTouches[0],dx=t.clientX-swX,dy=t.clientY-swY;
+ if(Math.abs(dx)<70||Math.abs(dy)>60||Date.now()-swT>700)return;
+ const btns=[...document.querySelectorAll('#tabs button')].filter(b=>!b.hidden);
+ const cur=btns.findIndex(b=>b.classList.contains('on'));
+ const nxt=btns[cur+(dx<0?1:-1)];
+ if(nxt)nxt.click()},{passive:true});
+function goTab(k){if(k==='home')home();else if(k==='stats')stats();else if(k==='set')settings();else if(k==='lib')lib('proto');else if(k==='ai')aiScreen();else home()}
+window.addEventListener('popstate',e=>{
+ if(document.body.classList.contains('run')){
+  if(confirm('Прервать урок? Запись урока не сохранится.')){if(window.__abort)window.__abort()}
+  else history.pushState({k:'run'},'');
+  return}
+ navSilent=true;try{goTab(e.state&&e.state.k?e.state.k:'home')}finally{navSilent=false}});
+if(!history.state)history.replaceState({k:'home'},'');
 let deferredInstall=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const b=$('#inst');if(b)b.hidden=false});
 window.addEventListener('appinstalled',()=>{deferredInstall=null});
@@ -473,7 +525,6 @@ function applyTheme(){
 }
 
 /* ===== 10. Администратор: вход, библиотека, советник ИИ ===== */
-let ADMIN_PW='';
 function applyAdmin(){document.querySelectorAll('[data-t=lib],[data-t=ai]').forEach(b=>b.hidden=!isAdmin())}
 async function adminLogin(pw){
  const r=await fetch(SHARED_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'admin-check',password:pw})});
@@ -490,21 +541,27 @@ async function lib(sub='proto'){
  chrome('lib');if(!isAdmin())return settings();
  const tabs=`<div class="row">${[['proto','Протоколы'],['sound','Звуки'],['media','Картинки и видео']].map(([k,v])=>`<button class="${sub===k?'':'ghost'}" data-sub="${k}">${v}</button>`).join('')}</div>`;
  if(sub==='proto'){
-  html(`<h2>Библиотека</h2>${tabs}`+Object.keys(PR).map(p=>`<div class="card"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}. Изменение протоколов появится после подключения советника и одобрения.</p></div>`).join('')+(S.library||[]).map(x=>`<div class="card"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description)}</p><p class="m">Основа: ${PR[x.base].n}. Из студии.</p><button class="ghost" data-libtest="${x.id}">Тест</button></div>`).join(''));
+  html(`<h2>Библиотека</h2>${tabs}`+Object.keys(PR).map(p=>`<div class="card"><h3>${PR[p].n}</h3><p class="m">${BRIEF[p].short}</p><p class="m">Код: ${p}. Изменение протоколов появится после подключения советника и одобрения.</p></div>`).join('')+(S.library||[]).map(x=>`<div class="card"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description)}</p><p class="m">Основа: ${baseName(x.base)}. Из студии.</p><button class="ghost" data-libprev="${x.id}">Предпросмотр</button> <button class="ghost" data-libtest="${x.id}">Тест</button> <button class="ghost" data-libedit="${x.id}">Редактировать</button> <button class="ghost" data-libdel="${x.id}">Удалить</button></div>`).join(''));
  }else{
   const files=await libAll(sub);
   html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
-   <input type="file" id="up" accept="${sub==='sound'?'audio/*':'image/*,video/*'}"></div>
+   <input type="file" id="up" accept="${sub==='sound'?'audio/*':'image/*,video/*'}"><input type="file" id="replIn" hidden></div>
    <div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Публикуются одобренные протоколы и список файлов. Файлы загружаются на сервер вместе с публикацией.</p><button id="pubL">Опубликовать библиотеку</button><p class="m" id="pubM"></p></div>
    ${sub==='sound'?`<div class="card"><h3>Звук для протокола</h3><select id="lnkP">${(S.library||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><select id="lnkF">${files.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select><button id="lnkB" class="ghost">Привязать</button></div>`:''}`+
-   (files.length?files.map(f=>`<div class="card"><b>${esc(f.name)}</b><span class="m">${(f.size/1024).toFixed(0)} КБ</span><button class="ghost" data-del="${f.id}">Удалить</button></div>`).join(''):'<p class="m">Файлов пока нет.</p>'));
+   (files.length?files.map(f=>`<div class="card"><b>${esc(f.name)}</b><span class="m">${(f.size/1024).toFixed(0)} КБ</span>${previewMedia(f)}<button class="ghost" data-repl="${f.id}">Заменить</button>${(f.type||'').startsWith('audio')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}${(f.type||'').startsWith('image')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}<button class="ghost" data-del="${f.id}">Удалить</button></div>`).join(''):'<p class="m">Файлов пока нет.</p>'));
   $('#up').onchange=async e=>{const f=e.target.files[0];if(!f)return;await libAdd(sub,f);lib(sub)};
   $('#pubL').onclick=async()=>{$('#pubM').textContent='Публикую…';try{await publishLibrary();$('#pubM').textContent='Опубликовано.'}catch(e){$('#pubM').textContent='Не удалось: '+e.message}};
   if($('#lnkB'))$('#lnkB').onclick=()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p)return;p.sound_file=$('#lnkF').value;save();$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await libDel(b.dataset.del);lib(sub)});
+  document.querySelectorAll('[data-repl]').forEach(b=>b.onclick=()=>{window.__repl=b.dataset.repl;$('#replIn').click()});
+  $('#replIn').onchange=async e=>{const f=e.target.files[0];if(f&&window.__repl){await libUpdate(window.__repl,f);lib(sub)}};
+  document.querySelectorAll('[data-trim]').forEach(b=>b.onclick=()=>{const f=files.find(x=>x.id===b.dataset.trim);if(f&&(f.type||'').startsWith('audio'))trimAudio(f.id);else if(f)cropImage(f.id)});
  }
  document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub));
- document.querySelectorAll('[data-libtest]').forEach(b=>b.onclick=()=>session(b.dataset.libtest))}
+ document.querySelectorAll('[data-libtest]').forEach(b=>b.onclick=()=>testSession(b.dataset.libtest));
+ document.querySelectorAll('[data-libprev]').forEach(b=>b.onclick=()=>previewProto(b.dataset.libprev));
+ document.querySelectorAll('[data-libedit]').forEach(b=>b.onclick=()=>editProto(b.dataset.libedit));
+ document.querySelectorAll('[data-libdel]').forEach(b=>b.onclick=()=>{if(!confirm('Удалить протокол из библиотеки?'))return;S.library=(S.library||[]).filter(x=>x.id!==b.dataset.libdel);save();lib('proto')})}
 
 async function syncLibrary(){
  try{const r=await fetch(SHARED_API+'/library');if(!r.ok)return;const j=await r.json();
@@ -519,6 +576,85 @@ async function publishLibrary(){
 async function uploadShared(rec){
  const r=await fetch(SHARED_API+'/files/'+rec.id,{method:'PUT',headers:{'Content-Type':rec.type||'application/octet-stream','X-Admin-Password':ADMIN_PW},body:rec.blob});
  if(!r.ok)throw new Error('сервер ответил '+r.status)}
+function previewMedia(f){
+ if(!f.blob)return '';const u=URL.createObjectURL(f.blob);
+ if((f.type||'').startsWith('image'))return `<img src="${u}" alt="" style="max-width:100%;border-radius:10px;margin-top:8px">`;
+ if((f.type||'').startsWith('video'))return `<video controls src="${u}" style="max-width:100%;border-radius:10px;margin-top:8px"></video>`;
+ return `<audio controls src="${u}" style="width:100%;margin-top:8px"></audio>`}
+function previewProto(id){
+ const x=findCustom(id)||(PR[id]?{name:PR[id].n,steps:BRIEF[id].steps,description:BRIEF[id].short,sound:[],visual:[]}:null);
+ if(!x)return;
+ html(`<h2>Предпросмотр: ${esc(x.name)}</h2><p class="m">${esc(x.description||'')}</p>
+  <div class="card"><ol class="steps">${(x.steps||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ol>
+  <p class="m">Звук: ${esc((x.sound||[]).join(', ')||'—')}. Визуально: ${esc((x.visual||[]).join(', ')||'—')}.</p></div>
+  <div class="row"><button id="pvPlay">Проиграть 12 секунд</button><button id="pvBack" class="ghost">Назад</button></div>`);
+ $('#pvBack').onclick=()=>chrome('lib')||lib('proto');
+ $('#pvPlay').onclick=()=>{if(!findCustom(id))return;A.init();startLayers(findCustom(id));setTimeout(()=>stopLayers(),12000)}}
+function editProto(id){
+ const x=(S.library||[]).find(q=>q.id===id);if(!x)return;
+ const sndOpts=['гул','тиканье','тишина','шелест','дыхание'],visOpts=['мягкое свечение','тишина','спокойный фон'];
+ html(`<h2>Редактирование протокола</h2><div class="card">
+  <label>Название</label><input id="ePn" value="${esc(x.name)}">
+  <label>Описание</label><textarea id="ePd" rows="2">${esc(x.description||'')}</textarea>
+  <label>Шаги (каждый с новой строки)</label><textarea id="ePs" rows="4">${esc((x.steps||[]).join('\n'))}</textarea>
+  <label>Основа</label><select id="ePb">${['custom','shield','booster','peak','reset'].map(b=>`<option value="${b}" ${x.base===b?'selected':''}>${baseName(b)}</option>`).join('')}</select>
+  <label>Длительность, с</label><select id="ePt">${[60,120,180,300].map(v=>`<option value="${v}" ${x.duration_s===v?'selected':''}>${v}</option>`).join('')}</select>
+  <label>Остановка при дискомфорте (3–10)</label><input id="ePx" type="number" min="3" max="10" value="${x.stop_if_discomfort||6}">
+  <p class="m">Звуки</p>${sndOpts.map(o=>`<label class="chk"><input type="checkbox" data-snd="${o}" ${(x.sound||[]).includes(o)?'checked':''}> ${o}</label>`).join('')}
+  <p class="m">Визуал</p>${visOpts.map(o=>`<label class="chk"><input type="checkbox" data-vis="${o}" ${(x.visual||[]).includes(o)?'checked':''}> ${o}</label>`).join('')}
+  <div class="row"><button id="ePsave">Сохранить</button><button id="ePcancel" class="ghost">Назад</button></div><p class="m" id="ePm"></p></div>`);
+ $('#ePcancel').onclick=()=>lib('proto');
+ $('#ePsave').onclick=()=>{x.name=$('#ePn').value.trim().slice(0,60)||x.name;x.description=$('#ePd').value.slice(0,300);
+  x.steps=$('#ePs').value.split('\n').map(t=>t.trim()).filter(Boolean).slice(0,6);x.base=$('#ePb').value;x.duration_s=+$('#ePt').value;
+  x.stop_if_discomfort=Math.min(10,Math.max(3,+$('#ePx').value||6));
+  x.sound=[...document.querySelectorAll('[data-snd]:checked')].map(e=>e.dataset.snd);
+  x.visual=[...document.querySelectorAll('[data-vis]:checked')].map(e=>e.dataset.vis);save();$('#ePm').textContent='Сохранено.'}}
+function encodeWav(buf){
+ const ch=buf.numberOfChannels,sr=buf.sampleRate,len=buf.length,data=new Int16Array(len*ch);
+ for(let c=0;c<ch;c++){const d=buf.getChannelData(c);for(let i=0;i<len;i++){const v=Math.max(-1,Math.min(1,d[i]));data[i*ch+c]=v<0?v*0x8000:v*0x7fff}}
+ const out=new DataView(new ArrayBuffer(44+data.length*2));const w=(o,t)=>{for(let k=0;k<t.length;k++)out.setUint8(o+k,t.charCodeAt(k))};
+ w(0,'RIFF');out.setUint32(4,36+data.length*2,true);w(8,'WAVE');w(12,'fmt ');out.setUint32(16,16,true);out.setUint16(20,1,true);
+ out.setUint16(22,ch,true);out.setUint32(24,sr,true);out.setUint32(28,sr*ch*2,true);out.setUint16(32,ch*2,true);out.setUint16(34,16,true);
+ w(36,'data');out.setUint32(40,data.length*2,true);
+ for(let i=0;i<data.length;i++)out.setInt16(44+i*2,data[i],true);
+ return new Blob([out],{type:'audio/wav'})}
+async function getRec(db,id){return new Promise(res=>{const q=db.transaction('files').objectStore('files').get(id);q.onsuccess=()=>res(q.result)})}
+async function libUpdate(id,file){
+ const db=await libDB();const rec=await getRec(db,id);if(!rec)return;
+ const nr={...rec,name:file.name,type:file.type,size:file.size,blob:file};
+ await new Promise((res,rej)=>{const t=db.transaction('files','readwrite');t.objectStore('files').put(nr);t.oncomplete=res;t.onerror=()=>rej(t.error)})}
+async function trimAudio(id){
+ const db=await libDB();const rec=await getRec(db,id);if(!rec)return;const url=URL.createObjectURL(rec.blob);
+ html(`<h2>Обрезка звука</h2><div class="card"><p class="m">${esc(rec.name)}</p><audio controls src="${url}" style="width:100%"></audio>
+  <label>Начало, с</label><input id="tS" type="number" min="0" step="0.1" value="0">
+  <label>Конец, с (0 — до конца)</label><input id="tE" type="number" min="0" step="0.1" value="0">
+  <div class="row"><button id="tApply">Применить</button><button id="tCancel" class="ghost">Назад</button></div><p class="m" id="tM"></p></div>`);
+ $('#tCancel').onclick=()=>lib('sound');
+ $('#tApply').onclick=async()=>{try{$('#tM').textContent='Обрабатываю…';
+   const ctx=new (window.AudioContext||window.webkitAudioContext)();const buf=await ctx.decodeAudioData(await rec.blob.arrayBuffer());
+   const st=Math.max(0,+$('#tS').value||0),en=(+$('#tE').value>0)?Math.min(buf.duration,+$('#tE').value):buf.duration;
+   if(en<=st){$('#tM').textContent='Конец должен быть больше начала.';return}
+   const s0=Math.floor(st*buf.sampleRate),s1=Math.floor(en*buf.sampleRate);
+   const out=ctx.createBuffer(buf.numberOfChannels,s1-s0,buf.sampleRate);
+   for(let c=0;c<buf.numberOfChannels;c++)out.getChannelData(c).set(buf.getChannelData(c).subarray(s0,s1));
+   const wav=encodeWav(out);await libUpdate(id,new File([wav],rec.name.replace(/\.[^.]+$/,'')+'_обрезка.wav',{type:'audio/wav'}));lib('sound')}
+  catch(e){$('#tM').textContent='Не удалось обрезать: '+e.message}}}
+async function cropImage(id){
+ const db=await libDB();const rec=await getRec(db,id);if(!rec)return;const url=URL.createObjectURL(rec.blob);
+ html(`<h2>Обрезка картинки</h2><div class="card"><img id="cImg" src="${url}" alt="" style="max-width:100%;border-radius:10px"><p class="m" id="cSz"></p>
+  <div class="grid"><label>X<input id="cX" type="number" min="0" value="0"></label><label>Y<input id="cY" type="number" min="0" value="0"></label>
+  <label>Ширина<input id="cW" type="number" min="1"></label><label>Высота<input id="cH" type="number" min="1"></label></div>
+  <div class="row"><button id="cApply">Применить</button><button id="cCancel" class="ghost">Назад</button></div><p class="m" id="cM"></p></div>`);
+ const img=$('#cImg');img.onload=()=>{$('#cW').value=img.naturalWidth;$('#cH').value=img.naturalHeight;$('#cSz').textContent='Размер: '+img.naturalWidth+'×'+img.naturalHeight+' px'};
+ $('#cCancel').onclick=()=>lib('media');
+ $('#cApply').onclick=async()=>{try{const bmp=await createImageBitmap(rec.blob);
+   const x=Math.max(0,+$('#cX').value||0),y=Math.max(0,+$('#cY').value||0);
+   const w=Math.min(bmp.width-x,+$('#cW').value),h=Math.min(bmp.height-y,+$('#cH').value);
+   if(w<1||h<1){$('#cM').textContent='Неверная область.';return}
+   const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(bmp,x,y,w,h,0,0,w,h);
+   const b=await new Promise(res=>cv.toBlob(res,'image/png'));
+   await libUpdate(id,new File([b],rec.name.replace(/\.[^.]+$/,'')+'_обрезка.png',{type:'image/png'}));lib('media')}
+  catch(e){$('#cM').textContent='Не удалось: '+e.message}}}
 function adviseSummary(){
  const L=S.log.filter(l=>l.type==='session').slice(-10);
  return {vuln:S.vuln,base:S.base,sessions:L.map(l=>({proto:l.proto,delta:l.post-l.pre,disc:l.disc,lvl:l.lvl,series:(l.hr_series||[]).map(x=>x[1])}))}}
@@ -551,14 +687,29 @@ function scenarioPrompt(extra){
  const ctx=`Контекст пользователя (без имени): главный спектр — ${top>=0?names[top]+' '+v[top]+'%':'не определён'}. `+
   `Последние уроки: ${last.map(l=>`${metaOf(l.proto).n}, пульс ${l.post-l.pre>0?'+':''}${l.post-l.pre}, дискомфорт ${l.disc}`).join('; ')||'уроков ещё нет'}.`;
  return ctx+'\n\n'+(extra||'Предложи 3–4 вымышленные ситуации в формате «Пульс повысился, когда …» для разных спектров (звук, зрение, тишина, давление времени, покой). Коротко опиши, что происходит в каждой. Я выберу одну, и мы доработаем её в протокол.')}
+function extractScenarios(text){
+ return String(text||'').split('\n').map(l=>l.replace(/^[\s\-\*\d\.\)]+/,'').replace(/\*\*/g,'').trim())
+  .filter(l=>/пульс повысился/i.test(l)).slice(0,5)}
+function newSituationChat(sit){S.active=S.active||{};
+ const c={id:newId(),kind:'create',title:sit.slice(0,40),situation:sit,msgs:[],t:Date.now(),
+  startPrompt:`Ситуация: «${sit}». Предложи 2–3 идеи протокола для этой ситуации: название, цель, ощущения, звуковые и визуальные слои, шаги. Не давай медицинских обещаний. Потом я выберу идею, и мы будем уточнять её и делать прототипы.`};
+ chatsAll().push(c);S.active.create=c.id;S.chats=chatsAll().slice(-60);save();aiScreen('create')}
+function lastSavedFor(C){
+ const pm=[...C.msgs].reverse().find(m=>m.proposal);if(!pm)return null;
+ return (S.library||[]).find(x=>x.name===pm.proposal.name&&x.base===pm.proposal.base)||null}
 function renderMsg(m,i){
  if(m.hidden)return '';
+ const asts=(m.assets||[]).map((a,j)=>`<div class="card asset"><b>Нужен: ${esc(a.label)}</b><p class="m">${esc(a.purpose||'')}</p>
+   <div class="row"><label class="filebtn ghost">Загрузить файл<input type="file" data-asset="${i}:${j}" accept="${a.kind==='sound'?'audio/*':'image/*,video/*'}" hidden></label>
+   ${a.kind==='sound'?`<button class="ghost" data-asynth="${i}:${j}">Синтез вместо файла</button>`:''}</div></div>`).join('');
+ const scn=(m.role==='assistant'&&!m.proposal)?extractScenarios(m.content):[];
+ const scnBtns=scn.map((t,j)=>`<button class="ghost scn" data-scn="${i}:${j}">Создать протокол: ${esc(t.slice(0,70))}</button>`).join('');
  const p=m.proposal;
- const card=p?`<div class="card"><b>${esc(p.name)}</b> <span class="m">основа: ${PR[p.base].n}, ${p.duration_s} с</span><p>${esc(p.description)}</p>
+ const card=p?`<div class="card"><b>${esc(p.name)}</b> <span class="m">основа: ${baseName(p.base)}, ${p.duration_s} с</span><p>${esc(p.description)}</p>
   <ol class="steps">${p.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>
   <p class="m">Звук: ${esc(p.sound.join(', ')||'—')}. Визуально: ${esc(p.visual.join(', ')||'—')}. Остановка при дискомфорте от ${p.stop_if_discomfort}/10.</p>
   <button data-save="${i}">В библиотеку</button> <button data-test="${i}" class="ghost">Тест</button> <button class="ghost" data-fix="${i}">Доработать</button></div>`:'';
- return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${card}</div>`}
+ return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${scnBtns}${card}${asts}</div>`}
 async function sendMsg(text,opts={}){
  const k=AI_SUB,C=activeChat(k);
  text=(text||'').trim();if(!text)return;
@@ -566,12 +717,14 @@ async function sendMsg(text,opts={}){
  if(C.title==='Новый чат'&&!opts.hidden)C.title=text.slice(0,40);
  save();aiScreen(k);$('#sst').textContent='ИИ думает…';
  try{const r=await callAdmin({action:'chat',mode:k==='create'?'create':'chat',messages:C.msgs.slice(-20).map(m=>({role:m.role,content:m.content}))});
-  C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();save();aiScreen(k);
+  C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null,assets:r.assets||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();
+  if(r.proposal){saveProposal(r.proposal);$('#sst')&&($('#sst').textContent='')}
+  save();aiScreen(k);
  }catch(e){aiScreen(k);$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
 function aiScreen(k){
  k=k||AI_SUB;AI_SUB=k;chrome('ai');if(!isAdmin())return settings();
  const C=activeChat(k);
- if(k==='create'&&!C.msgs.length&&!C.autostarted){C.autostarted=true;save();setTimeout(()=>sendMsg(scenarioPrompt(),{hidden:true}),0)}
+ if(k==='create'&&!C.msgs.length&&!C.autostarted){C.autostarted=true;save();setTimeout(()=>sendMsg(C.startPrompt||scenarioPrompt(),{hidden:true}),0)}
  const list=chatsOf(k).slice().sort((x,y)=>(y.t||0)-(x.t||0));
  html(`<h2>ИИ</h2>
  <div class="row">${[['create','Создание протокола'],['chat','Чат']].map(([id,t])=>`<button data-aisub="${id}" class="${k===id?'':'ghost'}">${t}</button>`).join('')}</div>
@@ -580,7 +733,8 @@ function aiScreen(k){
    ${list.map(c=>`<div class="citem ${c.id===C.id?'on':''}"><span data-pick="${c.id}">${esc(c.title)}</span><button class="ghost" data-del="${c.id}">✕</button></div>`).join('')}
   </aside>
   <div class="ai-main">
-   <div class="row"><button id="togSide" class="ghost">☰ Чаты</button><span class="m">${esc(C.title)}</span></div>
+   <div class="row"><button id="togSide" class="ghost">☰ Чаты</button><button id="newBr" class="ghost">+ Ветка</button><button id="themeQ" class="ghost">${S.set.theme==='light'?'Тёмная тема':'Светлая тема'}</button></div><p class="m chat-title">${esc(C.title)}</p>
+   ${C.situation?`<div class="card hero"><span class="m">Ситуация</span><p>${esc(C.situation)}</p></div>`:''}
    <div id="chat">${C.msgs.map((m,i)=>renderMsg(m,i)).join('')||'<p class="m">Сообщений пока нет.</p>'}</div>
    ${k==='create'?'<div class="row"><button id="moreS" class="ghost">Другие ситуации</button></div>':''}<div class="card"><textarea id="inp" rows="3" placeholder="${k==='create'?'Ответьте на ситуацию или попросите оформить протокол':'Сообщение'}"></textarea>
     <div class="row"><button id="send">Отправить</button>${SR?'<button id="mic" class="ghost">Голос</button>':''}<label class="filebtn ghost">Файл<input type="file" id="att" hidden></label></div>
@@ -591,6 +745,8 @@ function aiScreen(k){
  document.querySelectorAll('[data-aisub]').forEach(b=>b.onclick=()=>aiScreen(b.dataset.aisub));
  $('#togSide').onclick=()=>{S.sideOpen=!S.sideOpen;save();aiScreen(k)};
  $('#newC').onclick=()=>newChat(k);
+ $('#newBr').onclick=()=>newChat(k);
+ $('#themeQ').onclick=()=>{S.set.theme=S.set.theme==='light'?'dark':'light';save();applyTheme();aiScreen(k)};
  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.sideOpen=false;setActive(k,b.dataset.pick)});
  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('Удалить чат?'))delChat(k,b.dataset.del)});
  $('#send').onclick=()=>sendMsg($('#inp').value);
@@ -600,8 +756,15 @@ function aiScreen(k){
  $('#att').onchange=async e=>{const f=e.target.files[0];if(!f)return;
   if(/text\/|json|\.md$|\.txt$/.test(f.type+' '+f.name)){const t=(await f.text()).slice(0,4000);sendMsg('Вложение «'+f.name+'»:\n'+t)}
   else{await libAdd('media',f);$('#sst').textContent='Файл сохранён в библиотеку: '+f.name}};
+ document.querySelectorAll('[data-asset]').forEach(inp=>inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const [i,j]=inp.dataset.asset.split(':').map(Number);
+  const a=C.msgs[i].assets[j];const rec=await libAdd(a.kind==='sound'?'sound':'media',f);const P=lastSavedFor(C);
+  if(P&&a.kind==='sound'){P.sound_file=rec.id;save()}
+  $('#sst').textContent=P&&a.kind==='sound'?'Файл добавлен и привязан к протоколу «'+P.name+'».':'Файл сохранён в библиотеку: '+f.name});
+ document.querySelectorAll('[data-asynth]').forEach(b=>b.onclick=()=>{const P=lastSavedFor(C);if(!P){$('#sst').textContent='Сначала сохраните протокол.';return}
+  if(!(P.sound||[]).includes('гул'))P.sound=[...(P.sound||[]),'гул'];save();$('#sst').textContent='Добавлен синтезированный гул в протокол «'+P.name+'».'});
+ document.querySelectorAll('[data-scn]').forEach(b=>b.onclick=()=>{const [i,j]=b.dataset.scn.split(':').map(Number);const sit=extractScenarios(C.msgs[i].content)[j];if(sit)newSituationChat(sit)});
  document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{const p=C.msgs[+b.dataset.save].proposal;saveProposal(p);$('#sst').textContent='«'+p.name+'» сохранён в библиотеку.'});
- document.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>{const p=C.msgs[+b.dataset.test].proposal;session(saveProposal(p))});
+ document.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>{const p=C.msgs[+b.dataset.test].proposal;testSession(saveProposal(p))});
  document.querySelectorAll('[data-fix]').forEach(b=>b.onclick=()=>{$('#inp').value='Доработай протокол «'+C.msgs[+b.dataset.fix].proposal.name+'»: ';$('#inp').focus()});
  if($('#adv'))$('#adv').onclick=async()=>{$('#aiOut').textContent='Думаю…';
   try{const a=await callAdmin({action:'advise',summary:adviseSummary()});$('#aiOut').textContent='';

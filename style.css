@@ -92,3 +92,5 @@ details summary{color:var(--link)}
 .switch span::before{content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;background:var(--tx);border-radius:50%;transition:.2s}
 .switch input:checked + span{background:var(--ac)}
 .switch input:checked + span::before{transform:translateX(20px);background:var(--on)}
+
+.vis.glow{background:radial-gradient(ellipse at center,transparent 40%,rgba(169,200,236,.55) 100%);opacity:0}
