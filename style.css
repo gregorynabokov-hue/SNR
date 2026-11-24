@@ -126,3 +126,6 @@ select:focus{
 input[type=checkbox]{width:18px;height:18px;accent-color:var(--ac);vertical-align:middle;margin-right:6px}
 label{color:var(--tx)}
 label.chk{display:flex;align-items:center;gap:6px;padding:4px 0}
+
+.idea{border-color:var(--ac)}
+#ecgh{min-height:1.2em}

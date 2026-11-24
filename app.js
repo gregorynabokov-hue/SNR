@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.1';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -217,7 +217,7 @@ function localIntro(p){const v=S.vuln||[0,0,0,0],top=AX[v.indexOf(Math.max(...v)
   'Сядьте удобно и начинайте, когда будете готовы.']}}
 SET.custom=()=>{};
 function brief(p,test){chrome('home');const b=metaOf(p);
- html(`${test?'<p class="toast">Тестовый запуск: не учитывается в статистике, уроках и расписании.</p>':''}${ICON[metaOf(p).base]||''}<h2>${metaOf(p).n}</h2><p class="m">${b.short} Длительность: ${S.set.len/60} мин.</p>
+ html(`${test?'<p class="toast">Тестовый запуск: не учитывается в статистике, уроках и расписании.</p>':''}${ICON[metaOf(p).base]||''}<h2>${metaOf(p).n}</h2><p class="m">${b.short} Длительность: ${1} мин.</p>
  <div class="card" id="ai"><span class="m">Вступление к сессии</span><p id="aiT">Готовим вступление…</p></div>
  <div class="card"><h2>Как проходить</h2><ol class="steps">${b.steps.map(x=>`<li>${x}</li>`).join('')}</ol></div>
  <div class="card"><p class="m">Перед стартом измерим пульс: датчиком, камерой или вручную. После сессии спросим про самочувствие.</p></div>
@@ -236,17 +236,17 @@ function withPre(p,cb){
 function discForm(post,cb){
  html(`<h2>Как вы себя чувствуете?</h2><p class="m">Пульс после сессии записан с датчика: ${post} уд/мин.</p><label>Дискомфорт: <b id="dv">0</b>/10</label><input id="ds" type="range" min="0" max="10" value="0"><button id="ok">Дальше</button>`);
  $('#ds').oninput=e=>$('#dv').textContent=e.target.value;$('#ok').onclick=()=>cb(post,+$('#ds').value)}
-function sessionRun(p,test){document.body.classList.add('run');const base=metaOf(p).base,cust=PR[p]?null:findCustom(p);withPre(p,pre=>{A.init();LEN=S.set.len;const orbOn=PR[base]?PR[base].orb:!!(cust&&(cust.sound||[]).includes('дыхание'));
+function sessionRun(p,test){document.body.classList.add('run');const base=metaOf(p).base,cust=PR[p]?null:findCustom(p);withPre(p,pre=>{A.init();LEN=60;const orbOn=PR[base]?PR[base].orb:!!(cust&&(cust.sound||[]).includes('дыхание'));
   const c={p:base,pid:p,test:!!test,custom:cust?cust.id:null,pre,alive:true,lvl:S.lv[base]??.2,eases:0,auto:0,res:{}};
   html(`<h2>${metaOf(p).n}</h2><div class="stage ${orbOn?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
-  <div class="session-foot"><p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div></div>`);
+  <div class="session-foot"><p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><canvas id="ecg" height="90" style="width:100%;display:block"></canvas><p class="m" id="ecgh" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div></div>`);
   const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
   window.__abort=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();window.__abort=null;home('Урок прерван, запись не сохранена.')};
   const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();finish(c)};
   $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
   c.hrs=[];c.gaps=0;
   const hrl=$('#hrl');
-  const tick=()=>{const sec=Math.round((Date.now()-t0)/1000),ble=HRM.fresh(),b=ble??(S.cam&&!HRM.connected()?R.bpm():null),src=ble?'ble':'cam';
+  const tick=()=>{ecgPush(c,HRM.fresh()??(S.cam&&!HRM.connected()?R.bpm():null));const sec=Math.round((Date.now()-t0)/1000),ble=HRM.fresh(),b=ble??(S.cam&&!HRM.connected()?R.bpm():null),src=ble?'ble':'cam';
    if(b){c.hrs.push([sec,b,src]);hrl.textContent='Пульс: '+b+' уд/мин'+(ble?' (датчик)':'');
     if(S.base&&b>S.base*1.15&&base!=='reset'&&c.hrs.length>3){c.lvl*=.85;c.auto++;c.apply?.()}}
    else{c.gaps++;hrl.textContent='Пульс: нет сигнала'+(HRM.connected()?' от датчика':', смотрите в камеру')}};
@@ -278,6 +278,29 @@ async function playLinkedFile(id){
 function stopLayers(){
  document.querySelectorAll('.custom-glow').forEach(e=>e.remove());
  if(CUST_AUDIO){CUST_AUDIO.pause();CUST_AUDIO=null}}
+function ecgPush(c,b){
+ c.ecg=c.ecg||[];
+ const recent=c.ecg.filter(v=>v!=null).slice(-5);
+ const med=recent.length?[...recent].sort((x,y)=>x-y)[recent.length>>1]:null;
+ const ok=(b!=null)&&(med==null||Math.abs(b-med)<=15);
+ c.ecg.push(ok?b:null); if(c.ecg.length>60)c.ecg.shift();
+ ecgDraw(c);
+ const last=c.ecg.slice(-6);const valid=last.filter(v=>v!=null);
+ let hint='';
+ if(last.slice(-3).every(v=>v==null)) hint=HRM.connected()?'Датчик молчит: прижмите его к пальцу посильнее.':'Нет сигнала: посмотрите в камеру и не двигайтесь.';
+ else if(valid.length>=4){const mean=valid.reduce((a,v)=>a+v,0)/valid.length;const sd=Math.sqrt(valid.reduce((a,v)=>a+(v-mean)**2,0)/valid.length);
+  if(sd>6) hint='Не шевелите палец: сигнал прыгает.';}
+ const el=$('#ecgh'); if(el) el.textContent=hint;
+}
+function ecgDraw(c){
+ const cv=$('#ecg'); if(!cv||!c.ecg)return;
+ const dpr=devicePixelRatio||1,W=cv.clientWidth||340,H=90;cv.width=W*dpr;cv.height=H*dpr;
+ const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,W,H);
+ x.strokeStyle=cssv('--ln');x.lineWidth=1;[50,100,150].forEach(v=>{const y=H-((v-40)/160)*H;x.beginPath();x.moveTo(0,y);x.lineTo(W,y);x.stroke()});
+ x.strokeStyle=cssv('--ac');x.lineWidth=2;x.beginPath();let pen=false;
+ c.ecg.forEach((v,i)=>{if(v==null){pen=false;return}const px=i*(W/60),py=H-((v-40)/160)*H;pen?x.lineTo(px,py):x.moveTo(px,py);pen=true});
+ x.stroke();
+}
 function finishTest(c,post,disc){
  S.tests=S.tests||[];S.tests.push({t:new Date().toISOString(),pid:c.pid,pre:c.pre,post,disc,v:APP_VER});save();
  document.body.classList.remove('run');
@@ -332,7 +355,7 @@ function home(msg){
  if(!S.seen)return onboard();chrome('home');if(navigator.onLine)syncLibrary();
  const has=!!S.vuln,nx=nextLesson(),log=S.log.filter(l=>l.type==='session');
  const scanCard=`<div class="card hero"><span class="m">Начните здесь</span><h2>Сенсорный лабиринт</h2><p>Около 6 минут. Три короткие пробы покажут, какие раздражители вам трудно переносить. По итогам начнётся курс.</p><button id="scan">Запустить сенсорный лабиринт</button></div>`;
- const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${metaOf(nx.proto).n}</h2><p>${metaOf(nx.proto).short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${S.set.len/60} мин)</button></div>`:'';
+ const lessonCard=has?`<div class="card hero"><span class="m">Урок ${nx.n}</span><h2>${metaOf(nx.proto).n}</h2><p>${metaOf(nx.proto).short}</p><p class="m">${nx.why}</p><button data-p="${nx.proto}">Начать урок (${1} мин)</button></div>`:'';
  const path=`<div class="card"><h2>Путь</h2><p class="m">Уроков пройдено: ${log.length}. Серия: ${streak()} дн.</p><div class="path">${log.slice(-10).map((l,i,arr)=>`<div class="day done"><span class="dn">${l.lesson??(log.length-arr.length+i+1)}</span>${SHORT[l.proto]||metaOf(l.custom||l.proto).n}</div>`).join('')||'<p class="m">Пока пусто</p>'}</div></div>`;
  html(`<header><h1>СНР OS</h1><p class="m">Сенсорная нейропластическая рекалибровка</p></header>${(S.admin&&ADMIN_PW)?`<div class="adminbar"><label class="switch"><input type="checkbox" id="pvTop" ${S.preview?'checked':''}><span></span></label><span>${S.preview?'Предпросмотр: вы видите приложение как пользователь':'Режим администратора'}</span></div>`:''}${msg?`<p class="toast">${msg}</p>`:''}
  ${!has?scanCard:lessonCard}
@@ -374,14 +397,14 @@ function stats(){chrome('stats');const lastHR=[...S.log].reverse().find(l=>l.typ
  const nD=new Set(L.map(l=>l.day)).size;
  const countsCard=`<div class="card"><h2>Собрано данных</h2><div class="grid">${m('Сессий',L.length)}${m('Дней с сессиями',nD)}${m('Замеров пульса',nM)}${m('Завершённых курсов',(S.courses||[]).length)}</div><p class="m">Замеры: пульс в сессиях и пробы сканера.</p></div>`;
  const wt0=L.length?new Date(L[0].t).getTime():0;const wk={};L.forEach(l=>{const w=Math.floor((new Date(l.t).getTime()-wt0)/604800000)+1;(wk[w]??=[]).push(l)});
- const weeksCard=`<div class="card"><h2>По неделям</h2>${L.length?`<div class="sc"><table><tr><th>Неделя</th><th>Сессий</th><th>Δ пульса</th><th>Диском.</th></tr>${Object.keys(wk).map(w=>{const q=wk[w];return `<tr><td>${w}</td><td>${q.length}</td><td>${f1(mean(q.map(l=>l.post-l.pre)))}</td><td>${f1(mean(q.map(l=>l.disc)))}</td></tr>`}).join('')}</table></div>`:'<p class="m">Пока нет сессий.</p>'}<p class="m">Контрольной группы нет, поэтому изменения по неделям не доказывают причину. Это описательные данные.</p></div>`;
+ const weeksCard=`<div class="card"><h2>По неделям</h2>${L.length?`<div class="sc"><table><tr><th>Неделя</th><th>Сессий</th><th>Δ пульса</th><th>Диском.</th></tr>${Object.keys(wk).map(w=>{const q=wk[w];return `<tr><td>${w}</td><td>${q.length}</td><td>${f1(mean(q.map(l=>l.post-l.pre)))}</td><td>${f1(mean(q.map(l=>l.disc)))}</td></tr>`}).join('')}</table></div>`:'<p class="m">Пока нет сессий.</p>'}<p class="m">Это просто записи по неделям, без выводов о причинах.</p></div>`;
  html(`<h2>Аналитика</h2>${L.length?'':'<p class="toast">Пока нет сессий: данные появятся после первой тренировки.</p>'}
- <div class="card"><div class="grid">${m('Сессий',L.length)}${m('Уроков пройдено',lessonCount())}${m('Δ пульса, уд/мин',f1(mean(D)))}${m('Эффект d (парный)',L.length>=10?f1(dz,2):'нужно 10+ сессий')}
- ${m('Тренд дискомфорта /сессия',f1(slope(L.map(l=>l.disc)),2))}${m('Снижений нагрузки',L.reduce((a,l)=>a+(l.eases||0),0))}</div>
- <p class="m">Δ&lt;0: пульс после тренировки ниже, чем до. ${L.length<10?'Данных мало, оценки предварительные.':''}</p></div>
- ${countsCard}${weeksCard}<div class="card"><h2>По протоколам</h2><div class="sc"><table><tr><th>Режим</th><th>N</th><th>Δ пульса</th><th>Диском.</th><th>Порог, %</th></tr>${rows}</table></div></div>
- <div class="card"><h2>Порог толерантности, %</h2><canvas id="c1"></canvas></div>
- <div class="card"><h2>Δ пульса за сессию, уд/мин</h2><canvas id="c2"></canvas></div>
+ <div class="card"><div class="grid">${m('Сессий',L.length)}${m('Уроков пройдено',lessonCount())}${m('Δ пульса, уд/мин',f1(mean(D)))}
+ </div>
+ <p class="m">Минус — пульс после урока ниже, чем до. ${L.length<10?'Данных мало, оценки предварительные.':''}</p></div>
+ ${countsCard}${weeksCard}<div class="card"><h2>По протоколам</h2><div class="sc"><table><tr><th>Режим</th><th>N</th><th>Δ пульса</th><th>Диском.</th><th>Нагрузка, %</th></tr>${rows}</table></div></div>
+ <div class="card"><h2>Нагрузка, %</h2><canvas id="c1"></canvas></div>
+ <div class="card"><h2>Изменение пульса за урок, уд/мин</h2><canvas id="c2"></canvas></div>
  <div class="card"><h2>Дискомфорт, 0–10</h2><canvas id="c3"></canvas></div>
  ${S.scans.length>1?'<div class="card"><h2>Сканер: первый (пунктир) и последний</h2><canvas id="c4"></canvas></div>':''}
  ${lastHR?'<div class="card"><h2>Пульс в последней сессии</h2><p class="m">По порядку записей, раз в 1,5 с</p><canvas id="c5"></canvas></div>':''}
@@ -407,17 +430,17 @@ const ADV=['Слух перегружается первым: начинайте
 const kv=(k,v)=>`<div><span class="m">${k}</span><b>${v}</b></div>`;
 function hero(){const i=S.vuln.indexOf(Math.max(...S.vuln));return `<div class="card hero"><span class="m">Ваш главный спектр</span><h2>${AX[i]}: ${S.vuln[i]}%</h2><p>${ADV[i]}</p><div class="row kv">${kv('Серия',streak()+' дн.')}${kv('Уроков',lessonCount())}${kv('Покой',S.base+' уд/мин')}</div></div>`}
 function summary(l){chrome('home');const d=l.post-l.pre,t=d<=-3?'Пульс заметно снизился: нервная система перешла в более спокойный режим.':d>=3?'Пульс вырос. На сложных протоколах это бывает. В следующий раз начните со «Щита» или «Сброса».':'Пульс почти не изменился. Эффект накапливается за несколько сессий.';
- html(`<div class="card hero"><span class="m">${metaOf(l.custom||l.proto).n}</span><div class="big">${d>0?'+':''}${d}</div><p class="m">уд/мин (${l.pre} → ${l.post})</p><p>${t}</p><div class="row kv">${kv('Дискомфорт',l.disc+'/10')}${l.hr_series?.length?kv('Средний в сессии',Math.round(mean(l.hr_series.map(x=>x[1])))+' уд/мин'):''}${kv('Порог',Math.round(l.lvl*100)+'%')}${kv('Серия',streak()+' дн.')}</div></div><button id="ok">Готово</button>`);
+ html(`<div class="card hero"><span class="m">${metaOf(l.custom||l.proto).n}</span><div class="big">${d>0?'+':''}${d}</div><p class="m">уд/мин (${l.pre} → ${l.post})</p><p>${t}</p><div class="row kv">${kv('Дискомфорт',l.disc+'/10')}${l.hr_series?.length?kv('Средний в сессии',Math.round(mean(l.hr_series.map(x=>x[1])))+' уд/мин'):''}${kv('Нагрузка',Math.round(l.lvl*100)+'%')}${kv('Серия',streak()+' дн.')}</div></div><button id="ok">Готово</button>`);
  $('#ok').onclick=()=>home(l.lesson?`Урок ${l.lesson} засчитан.`:'')}
 function settings(){chrome('set');html(`<h2>Настройки</h2><div class="card"><label>Громкость: <b id="vv">${Math.round(S.set.vol*100)}</b>%</label><input id="vol" type="range" min="10" max="100" value="${S.set.vol*100}">
- <label>Длительность сессии</label><div class="row" id="len">${[60,180,300].map(n=>`<button class="${S.set.len===n?'':'ghost'}" data-n="${n}">${n/60} мин</button>`).join('')}</div>
+ <p class="m">Все уроки длятся одну минуту.</p>
  <label><input type="checkbox" id="vb" ${S.set.vib?'checked':''}> Вибрация в такт дыханию (Android)</label>
  </div>
  <details class="card"><summary>Словарик: что означают термины</summary><dl class="gl">
  <dt>Радар болевых спектров</dt><dd>Диаграмма из четырёх направлений: звук, зрение и давление времени. Чем дальше точка от центра, тем сильнее реакция.</dd>
  <dt>Уязвимость, %</dt><dd>Насколько сильно организм реагирует на этот тип ситуации: 0 — почти нет реакции, 100 — сильная.</dd>
  <dt>Дискомфорт, 0–10</dt><dd>Ваша оценка: 0 — всё нормально, 10 — очень неприятно.</dd>
- <dt>Порог толерантности, %</dt><dd>Насколько сильный раздражитель вы выдерживаете спокойно. Растёт, если сессии проходят легко.</dd>
+ <dt>Нагрузка, %</dt><dd>Насколько сильный раздражитель вы выдерживаете спокойно. Растёт, если сессии проходят легко.</dd>
  <dt>Δ пульса</dt><dd>Пульс после сессии минус пульс до. Минус — пульс снизился.</dd>
  <dt>Эффект d</dt><dd>Насколько заметно изменение пульса по сравнению с разбросом. Верить ему стоит только при 10 и более сессиях.</dd>
  <dt>Протокол</dt><dd>Один тип тренировки: «Щит», «Бустер», «Пик» или «Сброс».</dd>
@@ -435,7 +458,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <button id="wipe" class="ghost">Удалить все данные и кэш</button></div>
  <div class="card"><h2>Экспериментальные функции</h2><p class="m">Работают нестабильно, точность не проверена. Данные могут быть неверными.</p>
  <label><input type="checkbox" id="cm" ${S.cam?'checked':''}> Измерение пульса камерой: кнопка в формах и запись во время сессий</label></div>
- <div class="card"><h2>Данные</h2><p class="m">Резервная копия содержит сессии, сканы и курсы. Файл можно восстановить на другом устройстве.</p>
+ <div class="card"><h2>Конфиденциальность и данные</h2><p class="m">Резервная копия содержит сессии, сканы и курсы. Файл можно восстановить на другом устройстве.</p>
  <div class="row"><button id="bk1" class="ghost">Сохранить копию</button><button id="bk2" class="ghost">Восстановить из файла</button></div>
  <input type="file" id="bkf" accept="application/json" hidden></div>
  ${scheduleCard()}
@@ -445,10 +468,10 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
  <div class="row"><button id="bc" class="${HRM.connected()?'ghost':''}">${HRM.connected()?'Отключить':'Подключить датчик'}</button></div>
  <p class="m">Нагрудные ремни и часы, передающие стандартный пульс (Polar H10, Wahoo, Garmin и др.). Нужны Chrome на Android или ПК. Safari на iPhone Bluetooth в браузере не поддерживает.</p></div>
+ <div class="card"><h2>О приложении</h2><p class="m">СНР OS, версия ${APP_VER}. Это версия сайта, которую вы сейчас используете.</p></div>
  <button id="ob" class="ghost">Показать вводный тур</button>`);
  $('#vol').oninput=e=>{S.set.vol=e.target.value/100;$('#vv').textContent=e.target.value;save()};
- $('#len').onclick=e=>{const n=+e.target.dataset.n;if(n){S.set.len=n;save();settings()}};
- $('#vb').onchange=e=>{S.set.vib=+e.target.checked;save()};$('#cm').onchange=e=>{S.cam=e.target.checked;save()};
+  $('#vb').onchange=e=>{S.set.vib=+e.target.checked;save()};$('#cm').onchange=e=>{S.cam=e.target.checked;save()};
  $('#ob').onclick=()=>{S.seen=0;save();home()};
  $('#api').onchange=e=>{S.set.api=e.target.value.trim();save()};
  $('#bk1').onclick=exportData;$('#bk2').onclick=()=>$('#bkf').click();$('#bkf').onchange=importData;
@@ -743,6 +766,7 @@ function lastSavedFor(C){
  return (S.library||[]).find(x=>x.name===pm.proposal.name&&x.base===pm.proposal.base)||null}
 function renderMsg(m,i){
  if(m.hidden)return '';
+ const ideas=(m.ideas||[]).map((d,j)=>`<div class="card idea"><b>${esc(d.name)}</b><p class="m">${esc(d.mechanic)}</p><p class="m">Звук: ${esc(d.sound||'—')} · Визуал: ${esc(d.visual||'—')}</p><button class="ghost" data-idea="${i}:${j}">Выбрать</button></div>`).join('');
  const asts=(m.assets||[]).map((a,j)=>`<div class="card asset"><b>Нужен: ${esc(a.label)}</b><p class="m">${esc(a.purpose||'')}</p>
    <div class="row"><label class="filebtn ghost">Загрузить файл<input type="file" data-asset="${i}:${j}" accept="${a.kind==='sound'?'audio/*':'image/*,video/*'}" hidden></label>
    ${a.kind==='sound'?`<button class="ghost" data-asynth="${i}:${j}">Синтез вместо файла</button>`:''}</div></div>`).join('');
@@ -753,7 +777,7 @@ function renderMsg(m,i){
   <ol class="steps">${p.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>
   <p class="m">Звук: ${esc(p.sound.join(', ')||'—')}. Визуально: ${esc(p.visual.join(', ')||'—')}. Остановка при дискомфорте от ${p.stop_if_discomfort}/10.</p>
   <button data-save="${i}">В библиотеку</button> <button data-test="${i}" class="ghost">Тест</button> <button class="ghost" data-fix="${i}">Доработать</button></div>`:'';
- return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${scnBtns}${card}${asts}</div>`}
+ return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${scnBtns}${ideas}${card}${asts}</div>`}
 async function sendMsg(text,opts={}){
  const k=AI_SUB,C=activeChat(k);
  text=(text||'').trim();if(!text)return;
@@ -761,7 +785,7 @@ async function sendMsg(text,opts={}){
  if(C.title==='Новый чат'&&!opts.hidden)C.title=text.slice(0,40);
  save();aiScreen(k);$('#sst').textContent='ИИ думает…';
  try{const r=await callAdmin({action:'chat',mode:k==='create'?'create':'chat',messages:C.msgs.slice(-20).map(m=>({role:m.role,content:m.content}))});
-  C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null,assets:r.assets||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();
+  C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null,assets:r.assets||null,ideas:r.ideas||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();
   if(r.proposal){saveProposal(r.proposal);$('#sst')&&($('#sst').textContent='')}
   save();aiScreen(k);
  }catch(e){aiScreen(k);$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
@@ -800,6 +824,7 @@ function aiScreen(k){
  $('#att').onchange=async e=>{const f=e.target.files[0];if(!f)return;
   if(/text\/|json|\.md$|\.txt$/.test(f.type+' '+f.name)){const t=(await f.text()).slice(0,4000);sendMsg('Вложение «'+f.name+'»:\n'+t)}
   else{await libAdd('media',f);$('#sst').textContent='Файл сохранён в библиотеку: '+f.name}};
+ document.querySelectorAll('[data-idea]').forEach(b=>b.onclick=()=>{const [i,j]=b.dataset.idea.split(':').map(Number);const d=C.msgs[i].ideas[j];sendMsg('Выбрана идея «'+d.name+'». Сделай прототип протокола и спроси, нужен ли звук или картинка.')});
  document.querySelectorAll('[data-asset]').forEach(inp=>inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const [i,j]=inp.dataset.asset.split(':').map(Number);
   const a=C.msgs[i].assets[j];const rec=await libAdd(a.kind==='sound'?'sound':'media',f);const P=lastSavedFor(C);
   if(P&&a.kind==='sound'){P.sound_file=rec.id;save()}
