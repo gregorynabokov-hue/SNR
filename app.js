@@ -324,7 +324,7 @@ function nextLesson(){
  const n=curDay(),k=n-(S.courseStart||0);
  if(S.aiNext&&S.aiNext.lesson===n&&PROTOS_OK.includes(S.aiNext.proto))return {n,proto:S.aiNext.proto,why:'Решение советника ИИ, подтверждено администратором: '+S.aiNext.reason};
  const sc=(S.schedule||[]).find(x=>x.lesson===n-(S.courseStart||0));
- if(sc)return {n,proto:sc.id,why:'Расписание: '+protoName(sc.id)+(sc.note?' — '+sc.note:'')};
+ if(sc){const pid=PR[sc.id]?sc.id:(PR[protoBase(sc.id)]?protoBase(sc.id):'shield');return {n,proto:pid,why:'Расписание: '+PR[pid].n+(sc.note?' — '+sc.note:'')}};
  if(!S.vuln)return {n,proto:null,why:'Сначала пройдите сенсорный лабиринт.'};
  const rank=S.vuln.map((_,i)=>i).sort((a,b)=>S.vuln[b]-S.vuln[a]);
  if(k<=4&&S.plan)return {n,proto:S.plan[k],why:`Начальный урок из скана: главный спектр «${AX[rank[0]].toLowerCase()}» (${S.vuln[rank[0]]}%).`};
@@ -625,14 +625,12 @@ function protoEditor(id){
  S.edChat=S.edChat||{};const msgs=S.edChat[id]||[];
  html(`<h2>Редактирование</h2>
   <div class="ed-wrap">
-   <div class="card ed-preview">
-    <div class="row"><button id="edPlay" class="icon" title="Тест (не учитывается в статистике)">▶</button><button id="edLayers" class="ghost">Слушать слои</button><button id="edBack" class="ghost">← Библиотека</button></div>
+   <div class="card ed-preview pcard"><div class="ptext">
     <h3>${esc(x.name)}</h3><p class="m">${esc(x.description||'')}</p>
     <ol class="steps">${(x.steps||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ol>
     <p class="m">Основа: ${baseName(x.base)} · ${x.duration_s} с · остановка при дискомфорте ${x.stop_if_discomfort}/10</p>
     <p class="m">Звук: ${esc((x.sound||[]).join(', ')||'—')} · Визуал: ${esc((x.visual||[]).join(', ')||'—')}</p>
-    <div class="row"><button id="edDel" class="ghost">Удалить протокол</button></div>
-   </div>
+    <div class="row"><button id="edDel" class="ghost">Удалить протокол</button></div></div><div class="pbtns"><button id="edPlay" class="icon" title="Тест (не учитывается в статистике)">▶</button><button id="edLayers" class="icon" title="Слушать слои">♪</button><button id="edBack" class="icon" title="Назад в библиотеку">←</button></div></div>
    <div class="card ed-chat ${ED_COLL?'collapsed':''}">
     <div class="row"><button id="edToggle" class="ghost">${ED_COLL?'▸ Чат с ИИ':'▾ Чат с ИИ'}</button><span class="m" id="edSt"></span></div>
     <div class="ed-body">
