@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.4';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.6';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -575,7 +575,7 @@ async function lib(sub='proto'){
     <div class="pbtns"><button class="icon" data-play="${p}" title="Тест (не учитывается в статистике)">▶</button><button class="icon" data-pen="${p}" title="Редактировать с ИИ">✎</button></div></div>`).join('');
   const ccards=(S.library||[]).map(x=>`<div class="card pcard"><div class="ptext"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description||'')}</p><p class="m">Основа: ${baseName(x.base)}${x.source==='base'?' · своя версия':' · из студии'}</p></div>
     <div class="pbtns"><button class="icon" data-play="${x.id}" title="Тест (не учитывается в статистике)">▶</button><button class="icon" data-pen="${x.id}" title="Редактировать с ИИ">✎</button></div></div>`).join('');
-  html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Протоколы попадают пользователям после публикации. Нажмите, когда протокол готов.</p><button id="pubP">Опубликовать библиотеку</button><p class="m" id="pubPM"></p></div>${bcards}${ccards}`);
+  html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Протоколы попадают пользователям после публикации. Нажмите, когда протокол готов.</p><button id="pubP">Опубликовать библиотеку</button><p class="m" id="pubPM"></p></div><div class="card"><h3>Добавить протокол из JSON</h3><p class="m">Вставьте протокол в формате JSON (name, base, steps, sound, visual, duration_s, stop_if_discomfort, timeline) и нажмите «Добавить».</p><textarea id="impJ" rows="6"></textarea><button id="impB" class="ghost">Добавить</button><p class="m" id="impM"></p></div>${bcards}${ccards}`);
  }else{
   const files=await libAll(sub);
   html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
@@ -597,6 +597,11 @@ async function lib(sub='proto'){
   document.querySelectorAll('[data-trim]').forEach(b=>b.onclick=()=>{const f=files.find(x=>x.id===b.dataset.trim);if(f&&(f.type||'').startsWith('audio'))trimAudio(f.id);else if(f)cropImage(f.id)});
  }
  document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub));
+ if($('#impB'))$('#impB').onclick=()=>{let o;try{o=JSON.parse($('#impJ').value)}catch(e){$('#impM').textContent='Не похоже на JSON: '+e.message;return}
+  const err=validProto(o);if(err){$('#impM').textContent=err;return}
+  S.library=S.library||[];
+  S.library.push({id:'c_'+Date.now().toString(36),name:String(o.name).slice(0,60),base:o.base,description:String(o.description||'').slice(0,300),steps:(o.steps||[]).slice(0,6).map(String),sound:Array.isArray(o.sound)?o.sound:[],visual:Array.isArray(o.visual)?o.visual:[],duration_s:[60,120,180,300].includes(o.duration_s)?o.duration_s:60,stop_if_discomfort:Math.min(10,Math.max(3,+o.stop_if_discomfort||6)),timeline:(Array.isArray(o.timeline)?o.timeline:[]).slice(0,8).map(x=>({t:Math.min(55,Math.max(0,Math.round(x.t)||0)),text:String(x.text||'').slice(0,140)})).filter(x=>x.text),sound_file:null,source:'json'});
+  save();lib('proto')};
  if($('#pubP'))$('#pubP').onclick=async()=>{$('#pubPM').textContent='Публикую…';try{await publishLibrary();$('#pubPM').textContent='Опубликовано. Пользователи получат протоколы при открытии приложения.'}catch(e){$('#pubPM').textContent='Не удалось: '+e.message}};
  document.querySelectorAll('[data-play]').forEach(b=>b.onclick=()=>testSession(b.dataset.play));
  document.querySelectorAll('[data-pen]').forEach(b=>b.onclick=()=>{const id=b.dataset.pen;protoEditor(PR[id]?draftFromBase(id):id)})}
@@ -629,12 +634,14 @@ function previewProto(id){
  $('#pvBack').onclick=()=>chrome('lib')||lib('proto');
  $('#pvPlay').onclick=()=>{if(!findCustom(id))return;A.init();startLayers(findCustom(id));setTimeout(()=>stopLayers(),12000)}}
 let ED_COLL=false;
+const ED_SNAP={};
 function draftFromBase(p){const m=metaOf(p);const id='c_'+Date.now().toString(36);S.library=S.library||[];
  S.library.push({id,name:m.n+' (своя версия)',base:p,description:m.short,steps:m.steps||[],sound:[],visual:[],duration_s:180,stop_if_discomfort:6,sound_file:null,source:'base'});
  save();return id}
 function applyDraft(x,p){const keep={id:x.id,source:x.source,sound_file:x.sound_file};Object.assign(x,p,keep);save()}
 function protoEditor(id){
  const x=(S.library||[]).find(q=>q.id===id);if(!x){lib('proto');return}
+ if(!(id in ED_SNAP))ED_SNAP[id]=JSON.stringify(x);
  S.edChat=S.edChat||{};const msgs=S.edChat[id]||[];
  html(`<h2>Редактирование</h2>
   <div class="ed-wrap">
@@ -643,6 +650,7 @@ function protoEditor(id){
     <ol class="steps">${(x.steps||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ol>
     <p class="m">Основа: ${baseName(x.base)} · ${x.duration_s} с · остановка при дискомфорте ${x.stop_if_discomfort}/10</p>
     <p class="m">Звук: ${esc((x.sound||[]).join(', ')||'—')} · Визуал: ${esc((x.visual||[]).join(', ')||'—')}</p>
+    <div class="row"><select id="edSnd"></select><button id="edAtt" class="ghost">Прикрепить звук</button></div>
     <div class="row"><button id="edDel" class="ghost">Удалить протокол</button></div></div><div class="pbtns"><button id="edPlay" class="icon" title="Тест (не учитывается в статистике)">▶</button><button id="edLayers" class="icon" title="Слушать слои">♪</button><button id="edBack" class="icon" title="Назад в библиотеку">←</button></div></div>
    <div class="card ed-chat ${ED_COLL?'collapsed':''}">
     <div class="row"><button id="edToggle" class="ghost">${ED_COLL?'▸ Чат с ИИ':'▾ Чат с ИИ'}</button><span class="m" id="edSt"></span></div>
@@ -653,21 +661,41 @@ function protoEditor(id){
     </div>
    </div>
   </div>`);
- $('#edBack').onclick=()=>lib('proto');
+ $('#edBack').onclick=()=>askExit(id);
+ libAll('sound').then(fs=>{const sel=$('#edSnd');if(sel)sel.innerHTML=fs.map(f=>`<option value="${f.id}">${String(f.name).replace(/</g,'&lt;')}</option>`).join('')||'<option value="">звуков нет</option>'});
+ if($('#edAtt'))$('#edAtt').onclick=async()=>{const v=$('#edSnd').value;if(!v){$('#edSt').textContent='Сначала загрузите звук во вкладке «Звуки».';return}x.sound_file=v;const fr=(await libAll('sound')).find(f=>f.id===v);if(fr&&fr.segments&&fr.segments.length)x.timeline=segsToTl(fr.segments);save();$('#edSt').textContent=x.timeline&&x.timeline.length?'Звук прикреплён, надписи взяты из расшифровки.':'Звук прикреплён. Надписей нет: нажмите «Расшифровать» в библиотеке.'};
  $('#edPlay').onclick=()=>testSession(id);
- $('#edLayers').onclick=()=>{A.init();startLayers(x);setTimeout(()=>stopLayers(),12000)};
+ $('#edLayers').onclick=()=>{if(!(x.sound||[]).length&&!x.sound_file){$('#edSt').textContent='В протоколе нет звуков: прикрепите звук или попросите ИИ.';return}A.init();startLayers(x);$('#edSt').textContent='Играет 12 секунд…';setTimeout(()=>{stopLayers();const e=$('#edSt');if(e)e.textContent=''},12000)};
  $('#edDel').onclick=()=>{if(!confirm('Удалить протокол из библиотеки?'))return;S.library=(S.library||[]).filter(q=>q.id!==id);save();lib('proto')};
  $('#edToggle').onclick=()=>{ED_COLL=!ED_COLL;protoEditor(id)};
  $('#edSend').onclick=async()=>{const t=$('#edInp').value.trim();if(!t)return;
   const ctx={role:'user',content:'Текущий протокол (JSON): '+JSON.stringify({name:x.name,base:x.base,description:x.description,steps:x.steps,sound:x.sound,visual:x.visual,duration_s:x.duration_s,stop_if_discomfort:x.stop_if_discomfort})+'. Внеси изменения по просьбе администратора и верни блок ```json с протоколом целиком.'};
   const list=S.edChat[id]||[];list.push({role:'user',content:t});S.edChat[id]=list;save();
   $('#edSt').textContent='ИИ думает…';
-  try{const r=await callAdmin({action:'chat',mode:'create',messages:[ctx,...list.slice(-18).map(m=>({role:m.role,content:m.content}))]});
+  try{const fs=await libAll('sound');const r=await callAdmin({action:'chat',mode:'create',messages:[ctx,...list.slice(-18).map(m=>({role:m.role,content:m.content}))],files:fs.map(f=>({id:f.id,name:f.name})),protocols:[{id:x.id,name:x.name}]});
+   let attachMsg='';if(r.attach){applyAttach(r.attach,fs);attachMsg=$('#edSt')?$('#edSt').textContent:''}
    list.push({role:'assistant',content:r.reply||'(пусто)'});
    if(r.proposal){applyDraft(x,r.proposal);list.push({role:'assistant',content:'Черновик обновлён и сохранён.'})}
-   S.edChat[id]=list.slice(-40);save();protoEditor(id);
+   S.edChat[id]=list.slice(-40);save();protoEditor(id);if(attachMsg)$('#edSt').textContent=attachMsg;
   }catch(e){$('#edSt').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером'}};
 }
+function validProto(o){
+ if(!o||typeof o.name!=='string'||!o.name.trim())return 'Нет поля name (название).';
+ if(!BASES.includes(o.base))return 'Поле base: shield, booster, peak, reset или custom.';
+ if(!Array.isArray(o.steps))return 'Нет поля steps (список шагов).';
+ return null}
+function askExit(id){
+ const x=(S.library||[]).find(q=>q.id===id);if(!x)return lib('proto');
+ if(JSON.stringify(x)===ED_SNAP[id]){delete ED_SNAP[id];return lib('proto')}
+ html(`<h2>Сохранить изменения?</h2><div class="card"><p>Вы изменили протокол «${String(x.name).replace(/</g,'&lt;')}».</p>
+  <div class="row"><button id="xCopy">Сохранить копию</button><button id="xRep">Заменить протокол</button></div>
+  <div class="row"><button id="xNo" class="ghost">Не сохранять</button><button id="xCancel" class="ghost">Вернуться к редактированию</button></div></div>`);
+ const idx=()=>S.library.indexOf(x);
+ $('#xCopy').onclick=()=>{const draft=JSON.parse(JSON.stringify(x));S.library[idx()]=JSON.parse(ED_SNAP[id]);
+  S.library.push({...draft,id:'c_'+Date.now().toString(36),name:draft.name+' (копия)',source:'copy'});save();delete ED_SNAP[id];lib('proto')};
+ $('#xRep').onclick=()=>{save();delete ED_SNAP[id];lib('proto')};
+ $('#xNo').onclick=()=>{S.library[idx()]=JSON.parse(ED_SNAP[id]);save();delete ED_SNAP[id];lib('proto')};
+ $('#xCancel').onclick=()=>protoEditor(id)}
 function editProto(id){
  const x=(S.library||[]).find(q=>q.id===id);if(!x)return;
  const sndOpts=['гул','тиканье','тишина','шелест','дыхание'],visOpts=['мягкое свечение','тишина','спокойный фон'];
@@ -776,11 +804,11 @@ function toB64(buf){let s='';const u=new Uint8Array(buf);for(let i=0;i<u.length;
 function segsToTl(segs){return (segs||[]).slice(0,8).map(x=>({t:Math.min(55,Math.max(0,Math.round(x.start||0))),text:String(x.text||'').slice(0,140)})).filter(x=>x.text)}
 async function libSetSegments(id,segs){const db=await libDB();const rec=await getRec(db,id);if(!rec)return;
  await new Promise((res,rej)=>{const t=db.transaction('files','readwrite');t.objectStore('files').put({...rec,segments:segs});t.oncomplete=res;t.onerror=()=>rej(t.error)})}
-function applyAttach(a,files){
+function applyAttach(a,files){const out=()=>$('#sst')||$('#edSt');
  const p=(S.library||[]).find(x=>x.id===a.protocol);const f=files.find(x=>x.id===a.file);
- if(!p||!f){$('#sst').textContent='Не нашёл протокол или звук для прикрепления.';return}
+ if(!p||!f){const o=out();if(o)o.textContent='Не нашёл протокол или звук для прикрепления.';return}
  p.sound_file=f.id;if(f.segments&&f.segments.length)p.timeline=segsToTl(f.segments);save();
- $('#sst').textContent='Звук «'+f.name+'» прикреплён к протоколу «'+p.name+'»'+(p.timeline&&p.timeline.length?' с надписями по звуку.':'.')}
+ const o2=out();if(o2)o2.textContent='Звук «'+f.name+'» прикреплён к протоколу «'+p.name+'»'+(p.timeline&&p.timeline.length?' с надписями по звуку.':'.')}
 function lastSavedFor(C){
  const pm=[...C.msgs].reverse().find(m=>m.proposal);if(!pm)return null;
  return (S.library||[]).find(x=>x.name===pm.proposal.name&&x.base===pm.proposal.base)||null}
