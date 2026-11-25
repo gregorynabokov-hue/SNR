@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.1';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.2';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -575,7 +575,7 @@ async function lib(sub='proto'){
     <div class="pbtns"><button class="icon" data-play="${p}" title="Тест (не учитывается в статистике)">▶</button><button class="icon" data-pen="${p}" title="Редактировать с ИИ">✎</button></div></div>`).join('');
   const ccards=(S.library||[]).map(x=>`<div class="card pcard"><div class="ptext"><h3>${esc(x.name)}</h3><p class="m">${esc(x.description||'')}</p><p class="m">Основа: ${baseName(x.base)}${x.source==='base'?' · своя версия':' · из студии'}</p></div>
     <div class="pbtns"><button class="icon" data-play="${x.id}" title="Тест (не учитывается в статистике)">▶</button><button class="icon" data-pen="${x.id}" title="Редактировать с ИИ">✎</button></div></div>`).join('');
-  html(`<h2>Библиотека</h2>${tabs}${bcards}${ccards}`);
+  html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Протоколы попадают пользователям после публикации. Нажмите, когда протокол готов.</p><button id="pubP">Опубликовать библиотеку</button><p class="m" id="pubPM"></p></div>${bcards}${ccards}`);
  }else{
   const files=await libAll(sub);
   html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
@@ -592,6 +592,7 @@ async function lib(sub='proto'){
   document.querySelectorAll('[data-trim]').forEach(b=>b.onclick=()=>{const f=files.find(x=>x.id===b.dataset.trim);if(f&&(f.type||'').startsWith('audio'))trimAudio(f.id);else if(f)cropImage(f.id)});
  }
  document.querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>lib(b.dataset.sub));
+ if($('#pubP'))$('#pubP').onclick=async()=>{$('#pubPM').textContent='Публикую…';try{await publishLibrary();$('#pubPM').textContent='Опубликовано. Пользователи получат протоколы при открытии приложения.'}catch(e){$('#pubPM').textContent='Не удалось: '+e.message}};
  document.querySelectorAll('[data-play]').forEach(b=>b.onclick=()=>testSession(b.dataset.play));
  document.querySelectorAll('[data-pen]').forEach(b=>b.onclick=()=>{const id=b.dataset.pen;protoEditor(PR[id]?draftFromBase(id):id)})}
 
