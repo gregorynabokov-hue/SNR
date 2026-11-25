@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.1';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -238,11 +238,11 @@ function discForm(post,cb){
  $('#ds').oninput=e=>$('#dv').textContent=e.target.value;$('#ok').onclick=()=>cb(post,+$('#ds').value)}
 function sessionRun(p,test){document.body.classList.add('run');const base=metaOf(p).base,cust=PR[p]?null:findCustom(p);withPre(p,pre=>{A.init();LEN=60;const orbOn=PR[base]?PR[base].orb:!!(cust&&(cust.sound||[]).includes('дыхание'));
   const c={p:base,pid:p,test:!!test,custom:cust?cust.id:null,pre,alive:true,lvl:S.lv[base]??.2,eases:0,auto:0,res:{}};
-  html(`<h2>${metaOf(p).n}</h2><div class="stage ${orbOn?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
+  html(`<h2>${metaOf(p).n}</h2><p id="tl" class="lbl" style="text-align:center;min-height:3.2em;padding:0 12px"></p><div class="stage ${orbOn?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
   <div class="session-foot"><p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><canvas id="ecg" height="90" style="width:100%;display:block"></canvas><p class="m" id="ecgh" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div></div>`);
   const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
-  window.__abort=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();window.__abort=null;home('Урок прерван, запись не сохранена.')};
-  const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);A.stop();stopLayers();R.stop();c.wl?.release();finish(c)};
+  window.__abort=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);clearInterval(c.tlTimer);A.stop();stopLayers();R.stop();c.wl?.release();window.__abort=null;home('Урок прерван, запись не сохранена.')};
+  const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);clearInterval(c.tlTimer);A.stop();stopLayers();R.stop();c.wl?.release();finish(c)};
   $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
   c.hrs=[];c.gaps=0;
   const hrl=$('#hrl');
@@ -256,7 +256,7 @@ function sessionRun(p,test){document.body.classList.add('run');const base=metaOf
   else hrl.textContent='Запись пульса выключена: подключите датчик или включите камеру в настройках';
   setTimeout(()=>{if(c.alive){(SET[base]||SET.custom)(c);if(cust)startLayers(cust)}},50); // orb: старт с scale(.45) из CSS
   const pg=$('#pg');pg.style.transition=`width ${LEN}s linear`;requestAnimationFrame(()=>pg.style.width='100%');
-  iv=setInterval(()=>{if(Date.now()-t0>=LEN*1000)end()},500)})}
+  iv=setInterval(()=>{if(Date.now()-t0>=LEN*1000)end()},500);startTimeline(c,cust,t0)})}
 let CUST_AUDIO=null;
 function startLayers(cust){
  const snd=cust.sound||[],vis=cust.visual||[];
@@ -278,6 +278,13 @@ async function playLinkedFile(id){
 function stopLayers(){
  document.querySelectorAll('.custom-glow').forEach(e=>e.remove());
  if(CUST_AUDIO){CUST_AUDIO.pause();CUST_AUDIO=null}}
+function startTimeline(c,cust,t0){
+ if(!cust||!cust.timeline||!cust.timeline.length)return;
+ c.tlTimer=setInterval(()=>{
+  const e=(CUST_AUDIO&&!CUST_AUDIO.paused)?CUST_AUDIO.currentTime:(Date.now()-t0)/1000;let cur=null;
+  for(const it of cust.timeline) if(it.t<=e) cur=it;
+  if(cur&&cur!==c.tlCur){c.tlCur=cur;const el=$('#tl');if(el)el.textContent=cur.text}
+ },250)}
 function ecgPush(c,b){
  c.ecg=c.ecg||[];
  const recent=c.ecg.filter(v=>v!=null).slice(-5);
@@ -773,6 +780,7 @@ function renderMsg(m,i){
  const p=m.proposal;
  const card=p?`<div class="card"><b>${esc(p.name)}</b> <span class="m">основа: ${baseName(p.base)}, ${p.duration_s} с</span><p>${esc(p.description)}</p>
   <ol class="steps">${p.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>
+  ${(p.timeline&&p.timeline.length)?`<ol class="tl-list">${p.timeline.map(t=>`<li><b>${t.t} с</b> ${esc(t.text)}</li>`).join('')}</ol>`:''}
   <p class="m">Звук: ${esc(p.sound.join(', ')||'—')}. Визуально: ${esc(p.visual.join(', ')||'—')}. Остановка при дискомфорте от ${p.stop_if_discomfort}/10.</p>
   <button data-save="${i}">В библиотеку</button> <button data-test="${i}" class="ghost">Тест</button> <button class="ghost" data-fix="${i}">Доработать</button></div>`:'';
  return `<div class="msg ${m.role}"><span class="m">${m.role==='user'?'Вы':'ИИ'}</span><p>${esc(m.content).replace(/\n/g,'<br>')}</p>${scnBtns}${ideas}${card}${asts}</div>`}
@@ -786,20 +794,23 @@ async function sendMsg(text,opts={}){
   C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null,assets:r.assets||null,ideas:r.ideas||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();
   if(r.proposal){saveProposal(r.proposal);$('#sst')&&($('#sst').textContent='')}
   save();aiScreen(k);
+  if(k==='create'&&!r.proposal&&!opts.hidden&&!opts.noRetry&&/протокол|создай|сделай/i.test(text))
+   sendMsg('Оформи протокол полностью в блоке ```json: name, base, description, steps, sound, visual, duration_s, stop_if_discomfort и timeline с надписями по секундам. Если нужен звук, запроси его в блоке ```assets.',{hidden:true,noRetry:true});
  }catch(e){aiScreen(k);$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
 function aiScreen(k){
  k=k||AI_SUB;AI_SUB=k;chrome('ai');if(!isAdmin())return settings();
  const C=activeChat(k);
  if(k==='create'&&!C.msgs.length&&!C.autostarted){C.autostarted=true;save();setTimeout(()=>sendMsg(C.startPrompt||scenarioPrompt(),{hidden:true}),0)}
  const list=chatsOf(k).slice().sort((x,y)=>(y.t||0)-(x.t||0));
+ const sideOn=S.sideOpen??(window.innerWidth>=640);
  html(`<h2>ИИ</h2>
  <div class="row">${[['create','Создание протокола'],['chat','Чат']].map(([id,t])=>`<button data-aisub="${id}" class="${k===id?'':'ghost'}">${t}</button>`).join('')}</div>
  <div class="ai-wrap">
-  <aside class="side ${S.sideOpen?'open':''}"><button id="newC" class="ghost">+ Новый чат</button>
+  <aside class="side ${sideOn?'open':''}"><button id="newC" class="ghost">+ Новый чат</button>
    ${list.map(c=>`<div class="citem ${c.id===C.id?'on':''}"><span data-pick="${c.id}">${esc(c.title)}</span><button class="ghost" data-del="${c.id}">✕</button></div>`).join('')}
   </aside>
   <div class="ai-main">
-   <div class="row"><button id="togSide" class="ghost">☰ Чаты</button><button id="newBr" class="ghost">+ Ветка</button><button id="themeQ" class="ghost">${S.set.theme==='light'?'Тёмная тема':'Светлая тема'}</button></div><p class="m chat-title">${esc(C.title)}</p>
+   <div class="row chat-head"><button id="togSide" class="ghost">☰ Чаты (${list.length})</button><select id="chatSel" class="chat-sel">${list.map(c=>`<option value="${c.id}" ${c.id===C.id?'selected':''}>${esc(c.title)}</option>`).join('')}</select><button id="newBr" class="ghost">+ Ветка</button><button id="themeQ" class="ghost">${S.set.theme==='light'?'Тёмная':'Светлая'}</button></div>
    ${C.situation?`<div class="card hero"><span class="m">Ситуация</span><p>${esc(C.situation)}</p></div>`:''}
    <div id="chat">${C.msgs.map((m,i)=>renderMsg(m,i)).join('')||'<p class="m">Сообщений пока нет.</p>'}</div>
    ${k==='create'?'<div class="row"><button id="moreS" class="ghost">Другие ситуации</button></div>':''}<div class="card"><textarea id="inp" rows="3" placeholder="${k==='create'?'Ответьте на ситуацию или попросите оформить протокол':'Сообщение'}"></textarea>
@@ -811,6 +822,7 @@ function aiScreen(k){
  document.querySelectorAll('[data-aisub]').forEach(b=>b.onclick=()=>aiScreen(b.dataset.aisub));
  $('#togSide').onclick=()=>{S.sideOpen=!S.sideOpen;save();aiScreen(k)};
  $('#newC').onclick=()=>newChat(k);
+ $('#chatSel').onchange=e=>setActive(k,e.target.value);
  $('#newBr').onclick=()=>newChat(k);
  $('#themeQ').onclick=()=>{S.set.theme=S.set.theme==='light'?'dark':'light';save();applyTheme();aiScreen(k)};
  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.sideOpen=false;setActive(k,b.dataset.pick)});
