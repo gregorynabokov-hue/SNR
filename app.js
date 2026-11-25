@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.2';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.3';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -582,11 +582,16 @@ async function lib(sub='proto'){
    <input type="file" id="up" accept="${sub==='sound'?'audio/*':'image/*,video/*'}"><input type="file" id="replIn" hidden></div>
    <div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Публикуются одобренные протоколы и список файлов. Файлы загружаются на сервер вместе с публикацией.</p><button id="pubL">Опубликовать библиотеку</button><p class="m" id="pubM"></p></div>
    ${sub==='sound'?`<div class="card"><h3>Звук для протокола</h3><select id="lnkP">${(S.library||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><select id="lnkF">${files.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select><button id="lnkB" class="ghost">Привязать</button></div>`:''}`+
-   (files.length?files.map(f=>`<div class="card"><b>${esc(f.name)}</b><span class="m">${(f.size/1024).toFixed(0)} КБ</span>${previewMedia(f)}<button class="ghost" data-repl="${f.id}">Заменить</button>${(f.type||'').startsWith('audio')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}${(f.type||'').startsWith('image')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}<button class="ghost" data-del="${f.id}">Удалить</button></div>`).join(''):'<p class="m">Файлов пока нет.</p>'));
+   (files.length?files.map(f=>`<div class="card"><b>${esc(f.name)}</b><span class="m">${(f.size/1024).toFixed(0)} КБ</span>${previewMedia(f)}${(f.type||'').startsWith('audio')?`<button class="ghost" data-trans="${f.id}">Расшифровать</button>`:''}<button class="ghost" data-repl="${f.id}">Заменить</button>${(f.type||'').startsWith('audio')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}${(f.type||'').startsWith('image')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}<button class="ghost" data-del="${f.id}">Удалить</button></div>`).join(''):'<p class="m">Файлов пока нет.</p>'));
   $('#up').onchange=async e=>{const f=e.target.files[0];if(!f)return;await libAdd(sub,f);lib(sub)};
   $('#pubL').onclick=async()=>{$('#pubM').textContent='Публикую…';try{await publishLibrary();$('#pubM').textContent='Опубликовано.'}catch(e){$('#pubM').textContent='Не удалось: '+e.message}};
-  if($('#lnkB'))$('#lnkB').onclick=()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p)return;p.sound_file=$('#lnkF').value;save();$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
+  if($('#lnkB'))$('#lnkB').onclick=async()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p)return;p.sound_file=$('#lnkF').value;const fr=(await libAll('sound')).find(x=>x.id===p.sound_file);if(fr&&fr.segments&&fr.segments.length)p.timeline=segsToTl(fr.segments);save();$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await libDel(b.dataset.del);lib(sub)});
+  document.querySelectorAll('[data-trans]').forEach(b=>b.onclick=async()=>{const rec=files.find(x=>x.id===b.dataset.trans);if(!rec)return;
+   if(rec.blob.size>6000000){alert('Файл больше 6 МБ, расшифровка не поддерживается.');return}
+   try{const segs=(await callAdmin({action:'transcribe',audio:toB64(await rec.blob.arrayBuffer()),mime:rec.type,name:rec.name})).segments||[];
+    await libSetSegments(rec.id,segs);$('#pubM').textContent='Расшифровано: '+segs.length+' фраз с отметками времени.';lib(sub)}
+   catch(e){$('#pubM').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Не удалось расшифровать. Проверьте, что провайдер поддерживает расшифровку.'}});
   document.querySelectorAll('[data-repl]').forEach(b=>b.onclick=()=>{window.__repl=b.dataset.repl;$('#replIn').click()});
   $('#replIn').onchange=async e=>{const f=e.target.files[0];if(f&&window.__repl){await libUpdate(window.__repl,f);lib(sub)}};
   document.querySelectorAll('[data-trim]').forEach(b=>b.onclick=()=>{const f=files.find(x=>x.id===b.dataset.trim);if(f&&(f.type||'').startsWith('audio'))trimAudio(f.id);else if(f)cropImage(f.id)});
@@ -767,6 +772,15 @@ function newSituationChat(sit){S.active=S.active||{};
  const c={id:newId(),kind:'create',title:sit.slice(0,40),situation:sit,msgs:[],t:Date.now(),
   startPrompt:`Ситуация: «${sit}». Предложи 2–3 идеи протокола для этой ситуации: название, цель, ощущения, звуковые и визуальные слои, шаги. Не давай медицинских обещаний. Потом я выберу идею, и мы будем уточнять её и делать прототипы.`};
  chatsAll().push(c);S.active.create=c.id;S.chats=chatsAll().slice(-60);save();aiScreen('create')}
+function toB64(buf){let s='';const u=new Uint8Array(buf);for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+function segsToTl(segs){return (segs||[]).slice(0,8).map(x=>({t:Math.min(55,Math.max(0,Math.round(x.start||0))),text:String(x.text||'').slice(0,140)})).filter(x=>x.text)}
+async function libSetSegments(id,segs){const db=await libDB();const rec=await getRec(db,id);if(!rec)return;
+ await new Promise((res,rej)=>{const t=db.transaction('files','readwrite');t.objectStore('files').put({...rec,segments:segs});t.oncomplete=res;t.onerror=()=>rej(t.error)})}
+function applyAttach(a,files){
+ const p=(S.library||[]).find(x=>x.id===a.protocol);const f=files.find(x=>x.id===a.file);
+ if(!p||!f){$('#sst').textContent='Не нашёл протокол или звук для прикрепления.';return}
+ p.sound_file=f.id;if(f.segments&&f.segments.length)p.timeline=segsToTl(f.segments);save();
+ $('#sst').textContent='Звук «'+f.name+'» прикреплён к протоколу «'+p.name+'»'+(p.timeline&&p.timeline.length?' с надписями по звуку.':'.')}
 function lastSavedFor(C){
  const pm=[...C.msgs].reverse().find(m=>m.proposal);if(!pm)return null;
  return (S.library||[]).find(x=>x.name===pm.proposal.name&&x.base===pm.proposal.base)||null}
@@ -791,10 +805,11 @@ async function sendMsg(text,opts={}){
  C.msgs.push({role:'user',content:text,hidden:!!opts.hidden});
  if(C.title==='Новый чат'&&!opts.hidden)C.title=text.slice(0,40);
  save();aiScreen(k);$('#sst').textContent='ИИ думает…';
- try{const r=await callAdmin({action:'chat',mode:k==='create'?'create':'chat',messages:C.msgs.slice(-20).map(m=>({role:m.role,content:m.content}))});
+ try{const fullFiles=await libAll('sound');const r=await callAdmin({action:'chat',mode:k==='create'?'create':'chat',messages:C.msgs.slice(-20).map(m=>({role:m.role,content:m.content})),files:fullFiles.map(x=>({id:x.id,name:x.name})),protocols:(S.library||[]).map(x=>({id:x.id,name:x.name}))});
   C.msgs.push({role:'assistant',content:r.reply||'(пустой ответ)',proposal:r.proposal||null,assets:r.assets||null,ideas:r.ideas||null});C.msgs=C.msgs.slice(-40);C.t=Date.now();
   if(r.proposal){saveProposal(r.proposal);$('#sst')&&($('#sst').textContent='')}
   save();aiScreen(k);
+  if(r.attach)applyAttach(r.attach,fullFiles);
   if(k==='create'&&!r.proposal&&!opts.hidden&&!opts.noRetry&&/протокол|создай|сделай/i.test(text))
    sendMsg('Оформи протокол полностью в блоке ```json: name, base, description, steps, sound, visual, duration_s, stop_if_discomfort и timeline с надписями по секундам. Если нужен звук, запроси его в блоке ```assets.',{hidden:true,noRetry:true});
  }catch(e){aiScreen(k);$('#sst').textContent=e.message==='auth'?'Сессия истекла, войдите заново.':'Нет связи с сервером: '+e.message}}
