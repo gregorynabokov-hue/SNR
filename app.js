@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.3';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.4';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -331,7 +331,7 @@ function nextLesson(){
  const n=curDay(),k=n-(S.courseStart||0);
  if(S.aiNext&&S.aiNext.lesson===n&&PROTOS_OK.includes(S.aiNext.proto))return {n,proto:S.aiNext.proto,why:'Решение советника ИИ, подтверждено администратором: '+S.aiNext.reason};
  const sc=(S.schedule||[]).find(x=>x.lesson===n-(S.courseStart||0));
- if(sc){const pid=PR[sc.id]?sc.id:(PR[protoBase(sc.id)]?protoBase(sc.id):'shield');return {n,proto:pid,why:'Расписание: '+PR[pid].n+(sc.note?' — '+sc.note:'')}};
+ if(sc){const pid=(PR[sc.id]||findCustom(sc.id))?sc.id:'shield';return {n,proto:pid,why:'Расписание: '+metaOf(pid).n+(sc.note?' — '+sc.note:'')}};
  if(!S.vuln)return {n,proto:null,why:'Сначала пройдите сенсорный лабиринт.'};
  const rank=S.vuln.map((_,i)=>i).sort((a,b)=>S.vuln[b]-S.vuln[a]);
  if(k<=4&&S.plan)return {n,proto:S.plan[k],why:`Начальный урок из скана: главный спектр «${AX[rank[0]].toLowerCase()}» (${S.vuln[rank[0]]}%).`};
@@ -371,7 +371,7 @@ function home(msg){
  ${has?`<div class="card"><h2>Радар болевых спектров</h2><canvas id="rad"></canvas></div>
  <div class="card"><h2>Динамика пульса</h2><canvas id="dyn"></canvas></div>
  <button id="scan" class="ghost">Пройти сканер заново</button>`:''}
- <details class="card"><summary>Другие протоколы</summary><div class="row">${Object.keys(PR).map(p=>`<button class="ghost" data-p="${p}">${SHORT[p]}</button>`).join('')}</div></details>
+ <details class="card"><summary>Другие протоколы</summary><div class="row">${[...Object.keys(PR).map(p=>({id:p,n:SHORT[p]})),...(S.pub||[]).map(x=>({id:x.id,n:x.name}))].map(x=>`<button class="ghost" data-p="${x.id}">${String(x.n).replace(/</g,'&lt;')}</button>`).join('')}</div></details>
  <div class="card"><h2>Выгрузка</h2><div class="row"><button class="ghost" id="csv">CSV: сессии</button><button class="ghost" id="csv2">CSV: по урокам</button></div><div class="row"><button class="ghost" id="csv3">CSV: пульс по секундам</button></div></div>
  <p class="m">Не медицинское изделие. При дискомфорте остановитесь.</p>`);
  if(has){radar($('#rad'),S.vuln);dyn($('#dyn'))}
@@ -581,11 +581,11 @@ async function lib(sub='proto'){
   html(`<h2>Библиотека</h2>${tabs}<div class="card"><h3>${LIB_SUBS[sub]}</h3><p class="m">Файлы хранятся на этом устройстве. Чтобы пользователи получали их, нужен сервер хранения (следующий шаг).</p>
    <input type="file" id="up" accept="${sub==='sound'?'audio/*':'image/*,video/*'}"><input type="file" id="replIn" hidden></div>
    <div class="card"><h3>Опубликовать для всех пользователей</h3><p class="m">Публикуются одобренные протоколы и список файлов. Файлы загружаются на сервер вместе с публикацией.</p><button id="pubL">Опубликовать библиотеку</button><p class="m" id="pubM"></p></div>
-   ${sub==='sound'?`<div class="card"><h3>Звук для протокола</h3><select id="lnkP">${(S.library||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><select id="lnkF">${files.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select><button id="lnkB" class="ghost">Привязать</button></div>`:''}`+
+   ${sub==='sound'?`<div class="card"><h3>Звук для протокола</h3><select id="lnkP">${(S.library||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select><select id="lnkF">${files.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select><button id="lnkB" class="ghost">Привязать</button><p class="m">Сейчас привязано: ${(S.library||[]).filter(p=>p.sound_file).map(p=>esc(p.name)+' ← '+esc((files.find(f=>f.id===p.sound_file)||{name:'файл удалён'}).name)).join('; ')||'ничего'}</p></div>`:''}`+
    (files.length?files.map(f=>`<div class="card"><b>${esc(f.name)}</b><span class="m">${(f.size/1024).toFixed(0)} КБ</span>${previewMedia(f)}${(f.type||'').startsWith('audio')?`<button class="ghost" data-trans="${f.id}">Расшифровать</button>`:''}<button class="ghost" data-repl="${f.id}">Заменить</button>${(f.type||'').startsWith('audio')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}${(f.type||'').startsWith('image')?`<button class="ghost" data-trim="${f.id}">Обрезать</button>`:''}<button class="ghost" data-del="${f.id}">Удалить</button></div>`).join(''):'<p class="m">Файлов пока нет.</p>'));
   $('#up').onchange=async e=>{const f=e.target.files[0];if(!f)return;await libAdd(sub,f);lib(sub)};
   $('#pubL').onclick=async()=>{$('#pubM').textContent='Публикую…';try{await publishLibrary();$('#pubM').textContent='Опубликовано.'}catch(e){$('#pubM').textContent='Не удалось: '+e.message}};
-  if($('#lnkB'))$('#lnkB').onclick=async()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p)return;p.sound_file=$('#lnkF').value;const fr=(await libAll('sound')).find(x=>x.id===p.sound_file);if(fr&&fr.segments&&fr.segments.length)p.timeline=segsToTl(fr.segments);save();$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
+  if($('#lnkB'))$('#lnkB').onclick=async()=>{const p=(S.library||[]).find(x=>x.id===$('#lnkP').value);if(!p){$('#pubM').textContent='Сначала создайте протокол: в студии (ИИ) или на вкладке «Протоколы».';return}if(!$('#lnkF').value){$('#pubM').textContent='Сначала загрузите звук.';return}p.sound_file=$('#lnkF').value;const fr=(await libAll('sound')).find(x=>x.id===p.sound_file);if(fr&&fr.segments&&fr.segments.length)p.timeline=segsToTl(fr.segments);save();lib('sound');$('#pubM').textContent='Привязано к «'+p.name+'». Опубликуйте библиотеку.'};
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{await libDel(b.dataset.del);lib(sub)});
   document.querySelectorAll('[data-trans]').forEach(b=>b.onclick=async()=>{const rec=files.find(x=>x.id===b.dataset.trans);if(!rec)return;
    if(rec.blob.size>6000000){alert('Файл больше 6 МБ, расшифровка не поддерживается.');return}
