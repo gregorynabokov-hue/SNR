@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.6';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.7';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -232,7 +232,7 @@ function withPre(p,cb){
  if(!HRM.connected())return pulseForm(metaOf(p).n+': пульс до',false,cb);
  html(`<h2>${metaOf(p).n}</h2><p class="m">Измеряем покой с датчика: 10 секунд. Сидите спокойно.</p><div id="cd" class="cd">10</div>`);
  const stop=sensorSample();let k=10;const iv=setInterval(()=>{k--;const el=$('#cd');if(el)el.textContent=Math.max(0,k)},1000);
- setTimeout(()=>{clearInterval(iv);cb(med(stop())||HRM.fresh()||S.base||70)},10000)}
+ setTimeout(()=>{clearInterval(iv);{const v=med(stop())||HRM.fresh();if(v)cb(v);else pulseForm('Датчик не передал пульс покоя. Введите значение вручную.',false,hr=>cb(hr))}},10000)}
 function discForm(post,cb){
  html(`<h2>Как вы себя чувствуете?</h2><p class="m">Пульс после сессии записан с датчика: ${post} уд/мин.</p><label>Дискомфорт: <b id="dv">0</b>/10</label><input id="ds" type="range" min="0" max="10" value="0"><button id="ok">Дальше</button>`);
  $('#ds').oninput=e=>$('#dv').textContent=e.target.value;$('#ok').onclick=()=>cb(post,+$('#ds').value)}
@@ -241,12 +241,13 @@ function sessionRun(p,test){document.body.classList.add('run');const base=metaOf
   html(`<h2>${metaOf(p).n}</h2><p id="tl" class="lbl" style="text-align:center;min-height:3.2em;padding:0 12px"></p><div class="stage ${orbOn?'':'hide'}"><div class="orb" id="orb" role="img" aria-label="Дыхательный круг: вдох растёт, выдох сжимается"></div><div class="lbl" id="lbl" aria-live="polite"></div></div><div id="task"></div>
   <div class="session-foot"><p class="m" id="hrl" aria-live="polite" style="text-align:center"></p><canvas id="ecg" height="90" style="width:100%;display:block"></canvas><p class="m" id="ecgh" style="text-align:center"></p><div class="bar"><i id="pg"></i></div><div class="row"><button id="ease" class="ghost">Мне некомфортно</button><button id="end">Завершить</button></div></div>`);
   const t0=Date.now();let iv;navigator.wakeLock?.request('screen').then(w=>c.wl=w).catch(()=>{});
-  window.__abort=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);clearInterval(c.tlTimer);A.stop();stopLayers();R.stop();c.wl?.release();window.__abort=null;home('Урок прерван, запись не сохранена.')};
+  window.__abort=(msg)=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);clearInterval(c.tlTimer);A.stop();stopLayers();R.stop();c.wl?.release();window.__abort=null;home(msg||'Урок прерван, запись не сохранена.')};
   const end=()=>{if(!c.alive)return;c.alive=false;clearInterval(iv);clearInterval(c.samp);clearInterval(c.tlTimer);A.stop();stopLayers();R.stop();c.wl?.release();finish(c)};
   $('#end').onclick=end;$('#ease').onclick=()=>{c.eases++;c.lvl*=.7;c.apply?.()};
   c.hrs=[];c.gaps=0;
   const hrl=$('#hrl');
   const tick=()=>{ecgPush(c,HRM.fresh()??(S.cam&&!HRM.connected()?R.bpm():null));const sec=Math.round((Date.now()-t0)/1000),ble=HRM.fresh(),b=ble??(S.cam&&!HRM.connected()?R.bpm():null),src=ble?'ble':'cam';
+    if(b)c.lastOk=Date.now();else if(Date.now()-(c.lastOk||t0)>20000){window.__abort&&window.__abort('Урок остановлен: датчик не передаёт пульс. Проверьте контакт и начните заново.');return}
    if(b){c.hrs.push([sec,b,src]);hrl.textContent='Пульс: '+b+' уд/мин'+(ble?' (датчик)':'');
     if(S.base&&b>S.base*1.15&&base!=='reset'&&c.hrs.length>3){c.lvl*=.85;c.auto++;c.apply?.()}}
    else{c.gaps++;hrl.textContent='Пульс: нет сигнала'+(HRM.connected()?' от датчика':', смотрите в камеру')}};
