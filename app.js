@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.9';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.10';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -79,6 +79,8 @@ const HRM={dev:null,last:null,n:0,
  status(){if(!this.connected())return 'не подключён';if(!this.n)return 'подключён, но пакетов с пульсом не было';const ago=this.last?Math.round((Date.now()-this.last.t)/1000):null;return 'пакетов получено: '+this.n+', последний '+(ago??'—')+' с назад, пульс '+(this.last?this.last.bpm:'—')},
  connected(){return !!this.dev?.gatt?.connected}, // HRM.connected() в интерфейсе
 };
+// При обновлении или закрытии страницы отпускаем датчик, иначе плата остаётся подключённой и не видна для нового подключения.
+window.addEventListener('pagehide',()=>{try{if(HRM.connected())HRM.dev.gatt.disconnect()}catch(e){}});
 function pulseForm(title,withDisc,cb,pre){
  html(`<h2>${title}</h2>${pre?`<p class="m">С датчика получено: ${pre} уд/мин (медиана). Проверьте и нажмите «Дальше».</p>`:''}<p class="m">Пульс, уд/мин: измерьте камерой (лицо в кадре, не двигаться) или введите значение, замеренное смартфоном.</p>
  <input id="hr" type="number" inputmode="numeric" placeholder="например, 72" value="${pre??''}">
