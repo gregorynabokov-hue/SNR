@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.7';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.9';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -64,18 +64,19 @@ const R={buf:[],
  async measure(sec,tick){await this.start();const t0=Date.now();while(Date.now()-t0<sec*1000){tick(Math.ceil(sec-(Date.now()-t0)/1000));await sleep(250)}const r=this.bpm();this.stop();return r}};
 
 /* Bluetooth LE: стандартный сервис Heart Rate (0x180D / 0x2A37). Chrome на Android и ПК. */
-const HRM={dev:null,last:null,
+const HRM={dev:null,last:null,n:0,
  async connect(){
   if(!navigator.bluetooth)throw new Error('Bluetooth недоступен в этом браузере');
   this.dev=await navigator.bluetooth.requestDevice({filters:[{services:['heart_rate']}]});
-  this.dev.addEventListener('gattserverdisconnected',()=>{this.last=null;});
+  this.dev.addEventListener('gattserverdisconnected',()=>{this.last=null;if(window.__abort)window.__abort('Датчик отключился. Урок остановлен.');});
   const srv=await this.dev.gatt.connect();
   const ch=await (await srv.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
-  ch.addEventListener('characteristicvaluechanged',e=>{this.last={bpm:this.parse(e.target.value),t:Date.now()}});
-  await ch.startNotifications();
+  ch.addEventListener('characteristicvaluechanged',e=>{this.n++;this.last={bpm:this.parse(e.target.value),t:Date.now()}});
+  try{await ch.startNotifications()}catch(e){throw new Error('Не удалось включить уведомления от датчика: '+e.message)}
   return this.dev.name},
  parse(dv){const flags=dv.getUint8(0);return flags&1?dv.getUint16(1,true):dv.getUint8(1)}, // bit0: 0 = uint8, 1 = uint16
  fresh(){return this.last&&Date.now()-this.last.t<5000?this.last.bpm:null},
+ status(){if(!this.connected())return 'не подключён';if(!this.n)return 'подключён, но пакетов с пульсом не было';const ago=this.last?Math.round((Date.now()-this.last.t)/1000):null;return 'пакетов получено: '+this.n+', последний '+(ago??'—')+' с назад, пульс '+(this.last?this.last.bpm:'—')},
  connected(){return !!this.dev?.gatt?.connected}, // HRM.connected() в интерфейсе
 };
 function pulseForm(title,withDisc,cb,pre){
@@ -473,7 +474,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  <div class="card"><h2>Администратор</h2>${(S.admin&&ADMIN_PW)?'<p class="m">Вход выполнен.</p><label class="switch"><input type="checkbox" id="pv" '+(S.preview?'checked':'')+'><span></span></label> Предпросмотр: приложение как у пользователя<div class="row"><button id="chk" class="ghost">Проверить сервер</button><button id="alo" class="ghost">Выйти из режима администратора</button></div><p class="m" id="chkm"></p>':'<label>Пароль администратора</label><input id="apw" type="password" inputmode="numeric" autocomplete="off"><button id="ali">Войти</button><p class="m" id="alm"></p>'}</div>
  <div class="card"><h2>Тема</h2><div class="row"><button id="th1" class="${S.set.theme==='light'?'ghost':''}">Тёмная</button><button id="th2" class="${S.set.theme==='light'?'':'ghost'}">Светлая</button></div></div>
  <div class="card"><label>Адрес сервера вступлений (ИИ)</label><input id="api" type="url" value="${S.set.api||''}" placeholder="подключён автоматически"><p class="m">Сервер подключён автоматически и общий для всех. Поле нужно, только если хотите использовать свой сервер. Ключ API хранится на сервере, не в приложении.</p></div>
- <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name:'Не подключён'}</p>
+ <div class="card"><h2>Датчик пульса (Bluetooth)</h2><p class="m" id="bst">${!navigator.bluetooth?'Bluetooth недоступен в этом браузере':HRM.connected()?'Подключён: '+HRM.dev.name+'. Диагностика: '+HRM.status():'Не подключён'}</p>
  <div class="row"><button id="bc" class="${HRM.connected()?'ghost':''}">${HRM.connected()?'Отключить':'Подключить датчик'}</button></div>
  <p class="m">Нагрудные ремни и часы, передающие стандартный пульс (Polar H10, Wahoo, Garmin и др.). Нужны Chrome на Android или ПК. Safari на iPhone Bluetooth в браузере не поддерживает.</p></div>
  <div class="card"><h2>О приложении</h2><p class="m">СНР OS, версия ${APP_VER}. Это версия сайта, которую вы сейчас используете.</p></div>
@@ -501,7 +502,7 @@ function settings(){chrome('set');html(`<h2>Настройки</h2><div class="c
  $('#bc').onclick=async()=>{
   if(HRM.connected()){HRM.dev.gatt.disconnect();return settings()}
   try{$('#bst').textContent='Поиск датчика…';await HRM.connect();settings()}
-  catch(e){settings();$('#bst').textContent=e.name==='NotFoundError'?'Датчик не выбран':'Не подключено: '+e.message}};
+  catch(e){settings();$('#bst').textContent=e.name==='NotFoundError'?'Датчик не найден или выбор отменён. Если датчик уже подключён к другому устройству, нажмите RST на плате (или выключите его на 5 секунд) и повторите.':'Не подключено: '+e.message}};
  }
 $('#tabs').onclick=e=>{const t=e.target.closest('button')?.dataset.t;if(t)({home:()=>home(),stats,set:settings,lib:()=>lib('proto'),ai:()=>aiScreen()})[t]()};
 
