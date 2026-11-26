@@ -5,7 +5,7 @@
 let ADMIN_PW='';
 const isAdmin=()=>!!(S.admin&&ADMIN_PW&&!S.preview);
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const APP_VER='11.2.10';const BASES=['shield','booster','peak','reset','custom'];
+const APP_VER='11.2.11';const BASES=['shield','booster','peak','reset','custom'];
 const baseName=b=>PR[b]?PR[b].n:'Собственный протокол';const SHARED_API='https://snr-os-scenario.gregorynabokov.workers.dev';const KEY='snr_os_v1', PROBE=30;let LEN=180;
 const S=Object.assign({courses:[],base:null,hr:[],disc:[],vuln:null,plan:null,done:{},log:[],scans:[],lv:{shield:.15,booster:.3,peak:.3},cam:false,set:{vol:.8,len:180,vib:1},seen:0},JSON.parse(localStorage.getItem(KEY)||'{}'));
 const save=()=>localStorage.setItem(KEY,JSON.stringify(S));
@@ -67,7 +67,7 @@ const R={buf:[],
 const HRM={dev:null,last:null,n:0,
  async connect(){
   if(!navigator.bluetooth)throw new Error('Bluetooth недоступен в этом браузере');
-  this.dev=await navigator.bluetooth.requestDevice({filters:[{services:['heart_rate']}]});
+  this.dev=await navigator.bluetooth.requestDevice({filters:[{services:['heart_rate']},{namePrefix:'SNR'}],optionalServices:['heart_rate']});
   this.dev.addEventListener('gattserverdisconnected',()=>{this.last=null;if(window.__abort)window.__abort('Датчик отключился. Урок остановлен.');});
   const srv=await this.dev.gatt.connect();
   const ch=await (await srv.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
